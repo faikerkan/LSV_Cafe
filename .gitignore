@@ -1,0 +1,103 @@
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Environment variables (ÖNEMLİ: Şifreleri GitHub'a yüklemeyin!)
+.env
+.env.local
+.env.production
+.env.ubuntu
+backend/.env
+.env.*
+
+# Production build files
+dist/
+build/
+*/dist/
+*/build/
+
+# Test coverage
+coverage/
+*/coverage/
+.nyc_output/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+*.sublime-*
+
+# Prisma
+backend/prisma/migrations/migration_lock.toml
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Docker
+.dockerignore
+
+# Backups
+backups/
+*.sql
+*.sql.gz
+
+# SSL Certificates (Local only)
+ssl/
+*.pem
+*.key
+*.crt
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Cache
+.cache/
+.parcel-cache/
+.next/
+.nuxt/
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Yarn
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+.pnp.*
+
+# Mac
+.AppleDouble
+.LSOverride
+
+# Brain artifacts (yalnızca yerel)
+.gemini/

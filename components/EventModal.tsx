@@ -1,0 +1,593 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { CafeEvent, Department, EventStatus, LOCATIONS, RESOURCES } from '../types';
+import { X, AlertTriangle, CalendarClock, ChevronLeft, MapPin, Box, Printer, AlertCircle, ClipboardCheck, TrendingUp, TrendingDown, Minus, Info, Clock } from 'lucide-react';
+
+// Sadece belirli ekipmanlar çakışma yaratır. Yiyecek/İçecekler paylaşılabilir.
+const EXCLUSIVE_RESOURCES = ['Projeksiyon', 'Ses Sistemi'];
+
+interface EventModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSave: (event: CafeEvent) => void;
+  onReport?: (event: CafeEvent) => void;
+  initialDate?: Date;
+  existingEvent?: CafeEvent | null;
+  existingEvents: CafeEvent[];
+  isAdmin?: boolean;
+}
+
+interface ConflictDetail {
+  event: CafeEvent;
+  reason: string;
+}
+
+export const EventModal: React.FC<EventModalProps> = ({ 
+  isOpen, 
+  onClose, 
+  onSave, 
+  onReport,
+  initialDate, 
+  existingEvent,
+  existingEvents,
+  isAdmin = false
+}) => {
+  // Conflict Handling
+  const [conflictingEvents, setConflictingEvents] = useState<ConflictDetail[]>([]);
+  const [showConflictView, setShowConflictView] = useState(false);
+  const [pendingEvent, setPendingEvent] = useState<CafeEvent | null>(null);
+
+  // Form State
+  const [title, setTitle] = useState('');
+  const [department, setDepartment] = useState<Department>(Department.PR);
+  const [startDate, setStartDate] = useState('');
+  const [startTime, setStartTime] = useState('09:00');
+  const [endTime, setEndTime] = useState('10:00');
+  const [attendees, setAttendees] = useState(10);
+  const [contactPerson, setContactPerson] = useState('');
+  const [description, setDescription] = useState('');
+  const [requirements, setRequirements] = useState('');
+  const [location, setLocation] = useState<string>(LOCATIONS[0]);
+  const [selectedResources, setSelectedResources] = useState<string[]>([]);
+  
+  // Report State
+  const [actualAttendees, setActualAttendees] = useState<number | ''>('');
+  const [outcomeNotes, setOutcomeNotes] = useState('');
+
+  // Reset function
+  const resetForm = () => {
+    setTitle('');
+    setDepartment(Department.PR);
+    if (initialDate) {
+        setStartDate(initialDate.toISOString().split('T')[0]);
+    } else {
+        setStartDate(new Date().toISOString().split('T')[0]);
+    }
+    setStartTime('09:00');
+    setEndTime('10:00');
+    setAttendees(10);
+    setContactPerson('');
+    setDescription('');
+    setRequirements('');
+    setLocation(LOCATIONS[0]);
+    setSelectedResources([]);
+    setConflictingEvents([]);
+    setShowConflictView(false);
+    setPendingEvent(null);
+    setActualAttendees('');
+    setOutcomeNotes('');
+  };
+
+  useEffect(() => {
+    if (isOpen) {
+      if (existingEvent) {
+        setTitle(existingEvent.title);
+        setDepartment(existingEvent.department);
+        const start = new Date(existingEvent.startDate);
+        const end = new Date(existingEvent.endDate);
+        setStartDate(start.toISOString().split('T')[0]);
+        setStartTime(start.toTimeString().slice(0, 5));
+        setEndTime(end.toTimeString().slice(0, 5));
+        setAttendees(existingEvent.attendees);
+        setContactPerson(existingEvent.contactPerson);
+        setDescription(existingEvent.description);
+        setRequirements(existingEvent.requirements || '');
+        setLocation(existingEvent.location || LOCATIONS[0]);
+        setSelectedResources(existingEvent.resources || []);
+        setActualAttendees(existingEvent.actualAttendees || '');
+        setOutcomeNotes(existingEvent.outcomeNotes || '');
+      } else {
+        resetForm();
+      }
+      setShowConflictView(false);
+    }
+  }, [isOpen, initialDate, existingEvent]);
+
+  // --- Real-time Schedule Preview Logic ---
+  const eventsOnSelectedDate = useMemo(() => {
+    if (!startDate) return [];
+    return existingEvents.filter(e => {
+        // Filter by date match
+        const isSameDay = e.startDate.startsWith(startDate);
+        // Exclude rejected events
+        const isNotRejected = e.status !== EventStatus.REJECTED;
+        // Exclude the event currently being edited (if editing)
+        const isNotSelf = existingEvent ? e.id !== existingEvent.id : true;
+        
+        return isSameDay && isNotRejected && isNotSelf;
+    }).sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+  }, [startDate, existingEvents, existingEvent]);
+
+  const handleResourceToggle = (res: string) => {
+    setSelectedResources(prev => 
+      prev.includes(res) ? prev.filter(r => r !== res) : [...prev, res]
+    );
+  };
+
+  const getDeviation = () => {
+    if (!actualAttendees || actualAttendees === '') return null;
+    const diff = Number(actualAttendees) - attendees;
+    return diff;
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    const startDateTime = new Date(`${startDate}T${startTime}`);
+    const endDateTime = new Date(`${startDate}T${endTime}`);
+
+    if (endDateTime <= startDateTime) {
+      alert("Bitiş saati başlangıç saatinden sonra olmalıdır.");
+      return;
+    }
+
+    const newEvent: CafeEvent = {
+      id: existingEvent ? existingEvent.id : crypto.randomUUID(),
+      title,
+      department,
+      description,
+      startDate: startDateTime.toISOString(),
+      endDate: endDateTime.toISOString(),
+      attendees,
+      status: existingEvent ? existingEvent.status : EventStatus.PENDING,
+      contactPerson,
+      requirements,
+      location,
+      resources: selectedResources,
+      actualAttendees: actualAttendees === '' ? undefined : Number(actualAttendees),
+      outcomeNotes: outcomeNotes || undefined
+    };
+
+    // --- ROBUST CONFLICT CHECKING LOGIC ---
+    // Conflict exists if:
+    // 1. Time overlaps AND
+    // 2. (Same Location OR Shared Exclusive Resource)
+    
+    const detectedConflicts: ConflictDetail[] = [];
+
+    existingEvents.forEach(e => {
+        // Skip self
+        if (e.id === newEvent.id) return;
+        // Skip rejected/cancelled events
+        if (e.status === EventStatus.REJECTED) return;
+        
+        const eStart = new Date(e.startDate);
+        const eEnd = new Date(e.endDate);
+        const nStart = new Date(newEvent.startDate);
+        const nEnd = new Date(newEvent.endDate);
+
+        // Check time overlap
+        // (StartA < EndB) and (EndA > StartB)
+        const hasTimeOverlap = nStart < eEnd && nEnd > eStart;
+
+        if (hasTimeOverlap) {
+            const reasons: string[] = [];
+
+            // 1. Check Location Conflict
+            if (e.location === newEvent.location) {
+                reasons.push(`Mekan Dolu: ${newEvent.location}`);
+            }
+
+            // 2. Check Resource Conflict (Only for Exclusive Resources)
+            const conflictingResources = newEvent.resources.filter(r => 
+                e.resources.includes(r) && EXCLUSIVE_RESOURCES.includes(r)
+            );
+
+            if (conflictingResources.length > 0) {
+                reasons.push(`Ekipman Çakışması: ${conflictingResources.join(', ')}`);
+            }
+
+            // If there is any blocking reason, add to conflicts
+            if (reasons.length > 0) {
+                detectedConflicts.push({
+                    event: e,
+                    reason: reasons.join(' & ')
+                });
+            }
+        }
+    });
+
+    if (detectedConflicts.length > 0) {
+        setConflictingEvents(detectedConflicts);
+        setPendingEvent(newEvent);
+        setShowConflictView(true);
+    } else {
+        onSave(newEvent);
+        onClose();
+    }
+  };
+
+  const handleForceSave = () => {
+    if (pendingEvent) {
+        onSave(pendingEvent);
+        onClose();
+    }
+  };
+
+  const handleBackToEdit = () => {
+    setShowConflictView(false);
+    setPendingEvent(null);
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 overflow-y-auto">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden relative min-h-[400px] max-h-[90vh] overflow-y-auto">
+        
+        {/* Header */}
+        <div className={`text-white p-4 flex justify-between items-center sticky top-0 z-10 ${showConflictView ? 'bg-amber-600' : 'bg-slate-900'}`}>
+          <h2 className="text-xl font-bold flex items-center gap-2">
+            {showConflictView ? (
+                <>
+                    <AlertTriangle className="text-white" size={24} />
+                    Çakışma Tespit Edildi
+                </>
+            ) : (
+                existingEvent ? (isAdmin ? 'Etkinliği Düzenle' : 'Etkinlik Detayları / Düzenle') : 'Yeni Etkinlik Talep Et'
+            )}
+          </h2>
+          <button onClick={onClose} className="hover:bg-white/20 p-1 rounded transition">
+            <X size={24} />
+          </button>
+        </div>
+
+        {/* CONFLICT VIEW OVERLAY */}
+        {showConflictView && pendingEvent ? (
+           <div className="p-6">
+               <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6">
+                   <div className="flex gap-3 text-amber-800">
+                       <AlertCircle className="shrink-0" size={24}/>
+                       <div>
+                           <p className="font-bold text-lg mb-1">Dikkat!</p>
+                           <p className="text-sm">
+                               Seçtiğiniz tarih ve saat aralığında, talep edilen <strong>mekan</strong> veya <strong>özel ekipmanlar</strong> (Projeksiyon vb.) başka bir etkinlik tarafından kullanılıyor.
+                           </p>
+                       </div>
+                   </div>
+               </div>
+               
+               <h3 className="text-xs font-bold text-gray-400 uppercase mb-2 tracking-wide">Sizin Etkinliğiniz</h3>
+               <div className="flex items-start justify-between bg-blue-50 p-4 rounded-lg mb-6 border border-blue-100">
+                    <div>
+                        <h4 className="font-bold text-gray-800">{pendingEvent.title}</h4>
+                        <div className="flex items-center gap-2 text-sm text-gray-600 mt-1">
+                             <MapPin size={14}/> {pendingEvent.location}
+                        </div>
+                        <p className="text-sm text-gray-600 mt-1">
+                            {new Date(pendingEvent.startDate).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - 
+                            {new Date(pendingEvent.endDate).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                        </p>
+                    </div>
+                    <span className="text-xs font-semibold bg-blue-100 text-blue-700 px-2 py-1 rounded">
+                        {pendingEvent.department}
+                    </span>
+               </div>
+
+               <h3 className="text-xs font-bold text-gray-400 uppercase mb-2 tracking-wide">Çakışan Etkinlikler ({conflictingEvents.length})</h3>
+               <div className="space-y-3 mb-8">
+                   {conflictingEvents.map((item, idx) => (
+                       <div key={idx} className="bg-white border-l-4 border-amber-500 shadow-sm p-4 rounded-r-lg border-y border-r border-gray-100">
+                            <div className="flex justify-between items-start">
+                                <div className="flex-1">
+                                    <div className="font-bold text-gray-800">{item.event.title}</div>
+                                    <div className="text-sm text-red-600 font-bold mt-1 flex items-center gap-1">
+                                        <AlertTriangle size={14} />
+                                        {item.reason}
+                                    </div>
+                                    <div className="text-sm text-gray-500 flex items-center gap-1 mt-1">
+                                        <CalendarClock size={14} />
+                                        {new Date(item.event.startDate).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - 
+                                        {new Date(item.event.endDate).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                    </div>
+                                </div>
+                                <div className="text-right ml-4">
+                                    <div className="text-xs font-medium text-gray-500 bg-gray-100 px-2 py-1 rounded inline-block">{item.event.department}</div>
+                                    <div className="text-xs mt-1 text-gray-400">{item.event.contactPerson}</div>
+                                </div>
+                            </div>
+                       </div>
+                   ))}
+               </div>
+
+               <div className="flex gap-3 justify-end border-t pt-4">
+                   <button 
+                     onClick={handleBackToEdit}
+                     className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium transition flex items-center gap-2"
+                   >
+                       <ChevronLeft size={16} />
+                       Düzenlemeye Dön
+                   </button>
+                   <button 
+                     onClick={handleForceSave}
+                     className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 font-medium transition shadow-lg flex items-center gap-2"
+                   >
+                       <AlertTriangle size={16} />
+                       Yine de Kaydet
+                   </button>
+               </div>
+           </div>
+        ) : (
+            /* NORMAL FORM VIEW */
+            <>
+                {/* Form Body */}
+                <form onSubmit={handleSubmit} className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+                
+                <div className="col-span-2">
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">Etkinlik Adı</label>
+                    <input 
+                    required
+                    type="text" 
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 outline-none"
+                    />
+                </div>
+
+                <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">Departman</label>
+                    <select 
+                    value={department}
+                    onChange={(e) => setDepartment(e.target.value as Department)}
+                    className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 outline-none"
+                    >
+                    {Object.values(Department).map(dept => (
+                        <option key={dept} value={dept}>{dept}</option>
+                    ))}
+                    </select>
+                </div>
+
+                <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">Mekan / Salon</label>
+                    <select 
+                    value={location}
+                    onChange={(e) => setLocation(e.target.value)}
+                    disabled
+                    className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-gray-600 cursor-not-allowed outline-none"
+                    >
+                    {LOCATIONS.map(loc => (
+                        <option key={loc} value={loc}>{loc}</option>
+                    ))}
+                    </select>
+                </div>
+
+                <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">Tarih</label>
+                    <input 
+                    required
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 outline-none"
+                    />
+                </div>
+
+                <div className="flex gap-2">
+                    <div className="flex-1">
+                        <label className="block text-sm font-semibold text-gray-700 mb-1">Başlangıç</label>
+                        <input 
+                        required
+                        type="time"
+                        value={startTime}
+                        onChange={(e) => setStartTime(e.target.value)}
+                        className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 outline-none"
+                        />
+                    </div>
+                    <div className="flex-1">
+                        <label className="block text-sm font-semibold text-gray-700 mb-1">Bitiş</label>
+                        <input 
+                        required
+                        type="time"
+                        value={endTime}
+                        onChange={(e) => setEndTime(e.target.value)}
+                        className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 outline-none"
+                        />
+                    </div>
+                </div>
+
+                {/* SCHEDULE PREVIEW - Helps departments communicate implicitly by seeing busy slots */}
+                {startDate && (
+                    <div className="col-span-2 bg-gray-50 border border-gray-200 rounded-lg p-3">
+                         <h4 className="text-xs font-bold text-gray-500 uppercase flex items-center gap-1 mb-2">
+                            <CalendarClock size={12}/> {new Date(startDate).toLocaleDateString('tr-TR')} Tarihindeki Diğer Etkinlikler
+                         </h4>
+                         {eventsOnSelectedDate.length === 0 ? (
+                             <p className="text-sm text-gray-400 italic">Bu tarihte planlanmış başka etkinlik yok. Müsait.</p>
+                         ) : (
+                             <div className="space-y-2 max-h-[120px] overflow-y-auto pr-1 scrollbar-thin">
+                                 {eventsOnSelectedDate.map(e => {
+                                     const eStart = new Date(e.startDate).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+                                     const eEnd = new Date(e.endDate).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+                                     return (
+                                         <div key={e.id} className="flex items-center text-sm bg-white border border-gray-200 p-2 rounded shadow-sm">
+                                             <div className="font-mono text-xs font-semibold bg-gray-100 px-1.5 py-0.5 rounded text-gray-600 mr-2">
+                                                 {eStart}-{eEnd}
+                                             </div>
+                                             <div className="flex-1 truncate">
+                                                 <span className="font-medium text-gray-800">{e.title}</span>
+                                             </div>
+                                             <div className="text-xs text-gray-500 bg-gray-50 px-2 py-0.5 rounded ml-2 whitespace-nowrap">
+                                                 {e.department}
+                                             </div>
+                                         </div>
+                                     );
+                                 })}
+                             </div>
+                         )}
+                    </div>
+                )}
+
+                <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">Beklenen Kişi Sayısı</label>
+                    <input 
+                        required
+                        type="number"
+                        min="1"
+                        value={attendees}
+                        onChange={(e) => setAttendees(parseInt(e.target.value))}
+                        className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 outline-none"
+                    />
+                </div>
+
+                <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">İlgili Kişi</label>
+                    <input 
+                    required
+                    type="text"
+                    value={contactPerson}
+                    onChange={(e) => setContactPerson(e.target.value)}
+                    className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 outline-none"
+                    />
+                </div>
+
+                <div className="col-span-2">
+                    <label className="block text-sm font-semibold text-gray-700 mb-1 flex justify-between">
+                        Gerekli Kaynaklar / Ekipmanlar
+                        <span className="text-xs font-normal text-gray-400">* işaretliler çakışma yaratabilir</span>
+                    </label>
+                    <div className="flex flex-wrap gap-2 p-2 bg-gray-50 border rounded-lg">
+                        {RESOURCES.map(res => {
+                            const isExclusive = EXCLUSIVE_RESOURCES.includes(res);
+                            return (
+                                <button
+                                    key={res}
+                                    type="button"
+                                    onClick={() => handleResourceToggle(res)}
+                                    className={`px-3 py-1.5 rounded-full text-xs font-medium border transition flex items-center gap-1 ${
+                                        selectedResources.includes(res) 
+                                        ? 'bg-blue-600 text-white border-blue-600 shadow-sm' 
+                                        : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400'
+                                    }`}
+                                >
+                                    {selectedResources.includes(res) && <Box size={12}/>}
+                                    {res}
+                                    {isExclusive && <span className="text-[10px] ml-1 opacity-70">*</span>}
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                <div className="col-span-2">
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">Açıklama & Notlar</label>
+                    <textarea 
+                    rows={2}
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 outline-none resize-none"
+                    placeholder="Organizasyonun amacı, tipi..."
+                    />
+                </div>
+
+                <div className="col-span-2">
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">Özel İstekler (Yeme/İçme vb.)</label>
+                    <textarea 
+                    rows={2}
+                    value={requirements}
+                    onChange={(e) => setRequirements(e.target.value)}
+                    className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 outline-none resize-none"
+                    placeholder="Örn: Glutensiz menü, bistro masa..."
+                    />
+                </div>
+
+                {/* POST EVENT REPORTING SECTION - Visible only for existing events */}
+                {existingEvent && (
+                    <div className="col-span-2 mt-4 bg-emerald-50 border border-emerald-200 rounded-lg p-4">
+                        <div className="flex items-center gap-2 mb-3 text-emerald-800 border-b border-emerald-200 pb-2">
+                            <ClipboardCheck size={20} />
+                            <h3 className="font-bold">Etkinlik Sonuç Raporu</h3>
+                            <span className="text-xs font-normal text-emerald-600 ml-auto">Organizasyon sonrası doldurulur</span>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-semibold text-gray-700 mb-1">Gerçekleşen Katılımcı Sayısı</label>
+                                <div className="flex items-center gap-2">
+                                    <input 
+                                        type="number"
+                                        min="0"
+                                        value={actualAttendees}
+                                        onChange={(e) => setActualAttendees(e.target.value ? parseInt(e.target.value) : '')}
+                                        className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-emerald-500 outline-none"
+                                        placeholder={attendees.toString()}
+                                    />
+                                    {getDeviation() !== null && (
+                                        <div className={`text-xs font-bold px-2 py-1 rounded flex items-center gap-1 ${
+                                            (getDeviation() || 0) > 0 ? 'bg-green-100 text-green-700' : 
+                                            (getDeviation() || 0) < 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'
+                                        }`}>
+                                            {(getDeviation() || 0) > 0 ? <TrendingUp size={12}/> : (getDeviation() || 0) < 0 ? <TrendingDown size={12}/> : <Minus size={12}/>}
+                                            {Math.abs(getDeviation() || 0)} Fark
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-semibold text-gray-700 mb-1">Sonuç Notları & Değerlendirme</label>
+                                <textarea 
+                                    rows={2}
+                                    value={outcomeNotes}
+                                    onChange={(e) => setOutcomeNotes(e.target.value)}
+                                    className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-emerald-500 outline-none resize-none"
+                                    placeholder="Organizasyon nasıl geçti? Aksaklıklar, memnuniyet durumu..."
+                                />
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                <div className="col-span-2 flex justify-between mt-4 pt-4 border-t">
+                    <div>
+                        {existingEvent && onReport && isAdmin && (
+                            <button
+                                type="button"
+                                onClick={() => onReport(existingEvent)}
+                                className="px-4 py-2 text-indigo-600 bg-indigo-50 border border-indigo-200 rounded hover:bg-indigo-100 transition flex items-center gap-2 text-sm font-medium"
+                            >
+                                <Printer size={16} />
+                                Rapor Al
+                            </button>
+                        )}
+                    </div>
+                    <div className="flex gap-3">
+                        <button 
+                        type="button" 
+                        onClick={onClose}
+                        className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded transition"
+                        >
+                        İptal
+                        </button>
+                        <button 
+                        type="submit"
+                        className="px-6 py-2 bg-slate-900 text-white rounded hover:bg-slate-800 transition shadow-lg"
+                        >
+                        {existingEvent ? (isAdmin ? 'Güncelle' : 'Talep Güncelle') : 'Talep Oluştur'}
+                        </button>
+                    </div>
+                </div>
+                </form>
+            </>
+        )}
+      </div>
+    </div>
+  );
+};

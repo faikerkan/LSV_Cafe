@@ -1,0 +1,100 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    container_name: lsv_db_prod
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER:-lsv_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-lsv_password_secure}
+      POSTGRES_DB: ${DB_NAME:-lsv_cafe_db}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backups:/backups
+    ports:
+      - "127.0.0.1:5433:5432" # Only accessible from localhost
+    networks:
+      - lsv_network
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${DB_USER:-lsv_user}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: lsv_api_prod
+    restart: always
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-lsv_user}:${DB_PASSWORD:-lsv_password_secure}@db:5432/${DB_NAME:-lsv_cafe_db}
+      JWT_SECRET: ${JWT_SECRET:-your_production_jwt_secret_change_this}
+      PORT: 3000
+      NODE_ENV: production
+      FRONTEND_URL: ${FRONTEND_URL:-https://yourdomain.com}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - lsv_network
+    healthcheck:
+      test: [ "CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+  # Frontend (Nginx)
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - API_URL=${API_URL:-http://localhost}
+    container_name: lsv_web_prod
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro # SSL certificates
+      - nginx_cache:/var/cache/nginx
+    depends_on:
+      - api
+    networks:
+      - lsv_network
+    healthcheck:
+      test: [ "CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
+        reservations:
+          cpus: '0.25'
+          memory: 64M
+
+volumes:
+  pgdata:
+    driver: local
+  nginx_cache:
+    driver: local
+
+networks:
+  lsv_network:
+    driver: bridge

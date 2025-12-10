@@ -1,0 +1,5 @@
+{
+  "name": "LSV Cafe Rezervasyon",
+  "description": "A centralized event tracking and scheduling system for LSV Cafe to prevent conflicts and streamline department requests.",
+  "requestFramePermissions": []
+}

@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    container_name: lsv_db
+    restart: always
+    environment:
+      POSTGRES_USER: lsv_user
+      POSTGRES_PASSWORD: lsv_password_secure
+      POSTGRES_DB: lsv_cafe_db
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    networks:
+      - lsv_network
+
+  # Backend API
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: lsv_api
+    restart: always
+    ports:
+      - "3000:3000" # Expose for Nginx (internal) and potentially for external debugging
+    environment:
+      DATABASE_URL: postgres://lsv_user:lsv_password_secure@db:5432/lsv_cafe_db
+      JWT_SECRET: your_production_jwt_secret_change_this
+      PORT: 3000
+      FRONTEND_URL: http://localhost # Origin for CORS
+    depends_on:
+      - db
+    networks:
+      - lsv_network
+
+  # Frontend (Nginx)
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: lsv_web
+    restart: always
+    ports:
+      - "80:80" # Standard HTTP port
+    depends_on:
+      - api
+    networks:
+      - lsv_network
+
+volumes:
+  pgdata:
+
+
+networks:
+  lsv_network:
+    driver: bridge
