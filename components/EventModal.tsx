@@ -5,6 +5,18 @@ import { X, AlertTriangle, CalendarClock, ChevronLeft, MapPin, Box, Printer, Ale
 // Sadece belirli ekipmanlar çakışma yaratır. Yiyecek/İçecekler paylaşılabilir.
 const EXCLUSIVE_RESOURCES = ['Projeksiyon', 'Ses Sistemi'];
 
+// Safari gibi tarayıcılarda crypto.randomUUID yoksa geri dönüş
+const safeRandomId = () => {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+};
+
 interface EventModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -129,90 +141,108 @@ export const EventModal: React.FC<EventModalProps> = ({
     return diff;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    const startDateTime = new Date(`${startDate}T${startTime}`);
-    const endDateTime = new Date(`${startDate}T${endTime}`);
+    try {
+      const startDateTime = new Date(`${startDate}T${startTime}`);
+      const endDateTime = new Date(`${startDate}T${endTime}`);
 
-    if (endDateTime <= startDateTime) {
-      alert("Bitiş saati başlangıç saatinden sonra olmalıdır.");
-      return;
-    }
+      if (endDateTime <= startDateTime) {
+        alert("Bitiş saati başlangıç saatinden sonra olmalıdır.");
+        return;
+      }
 
-    const newEvent: CafeEvent = {
-      id: existingEvent ? existingEvent.id : crypto.randomUUID(),
-      title,
-      department,
-      description,
-      startDate: startDateTime.toISOString(),
-      endDate: endDateTime.toISOString(),
-      attendees,
-      status: existingEvent ? existingEvent.status : EventStatus.PENDING,
-      contactPerson,
-      requirements,
-      location,
-      resources: selectedResources,
-      actualAttendees: actualAttendees === '' ? undefined : Number(actualAttendees),
-      outcomeNotes: outcomeNotes || undefined
-    };
+      if (!title.trim()) {
+        alert("Etkinlik adı gereklidir.");
+        return;
+      }
 
-    // --- ROBUST CONFLICT CHECKING LOGIC ---
-    // Conflict exists if:
-    // 1. Time overlaps AND
-    // 2. (Same Location OR Shared Exclusive Resource)
-    
-    const detectedConflicts: ConflictDetail[] = [];
+      if (!contactPerson.trim()) {
+        alert("İlgili kişi gereklidir.");
+        return;
+      }
 
-    existingEvents.forEach(e => {
-        // Skip self
-        if (e.id === newEvent.id) return;
-        // Skip rejected/cancelled events
-        if (e.status === EventStatus.REJECTED) return;
-        
-        const eStart = new Date(e.startDate);
-        const eEnd = new Date(e.endDate);
-        const nStart = new Date(newEvent.startDate);
-        const nEnd = new Date(newEvent.endDate);
+      const newEvent: CafeEvent = {
+        id: existingEvent ? existingEvent.id : safeRandomId(),
+        title: title.trim(),
+        department,
+        description: description.trim(),
+        startDate: startDateTime.toISOString(),
+        endDate: endDateTime.toISOString(),
+        attendees,
+        status: existingEvent ? existingEvent.status : EventStatus.PENDING,
+        contactPerson: contactPerson.trim(),
+        requirements: requirements.trim() || undefined,
+        location,
+        resources: selectedResources,
+        actualAttendees: actualAttendees === '' ? undefined : Number(actualAttendees),
+        outcomeNotes: outcomeNotes.trim() || undefined
+      };
 
-        // Check time overlap
-        // (StartA < EndB) and (EndA > StartB)
-        const hasTimeOverlap = nStart < eEnd && nEnd > eStart;
+      console.log('Submitting event:', newEvent);
 
-        if (hasTimeOverlap) {
-            const reasons: string[] = [];
+      // --- ROBUST CONFLICT CHECKING LOGIC ---
+      // Conflict exists if:
+      // 1. Time overlaps AND
+      // 2. (Same Location OR Shared Exclusive Resource)
+      
+      const detectedConflicts: ConflictDetail[] = [];
 
-            // 1. Check Location Conflict
-            if (e.location === newEvent.location) {
-                reasons.push(`Mekan Dolu: ${newEvent.location}`);
-            }
+      existingEvents.forEach(e => {
+          // Skip self
+          if (e.id === newEvent.id) return;
+          // Skip rejected/cancelled events
+          if (e.status === EventStatus.REJECTED) return;
+          
+          const eStart = new Date(e.startDate);
+          const eEnd = new Date(e.endDate);
+          const nStart = new Date(newEvent.startDate);
+          const nEnd = new Date(newEvent.endDate);
 
-            // 2. Check Resource Conflict (Only for Exclusive Resources)
-            const conflictingResources = newEvent.resources.filter(r => 
-                e.resources.includes(r) && EXCLUSIVE_RESOURCES.includes(r)
-            );
+          // Check time overlap
+          // (StartA < EndB) and (EndA > StartB)
+          const hasTimeOverlap = nStart < eEnd && nEnd > eStart;
 
-            if (conflictingResources.length > 0) {
-                reasons.push(`Ekipman Çakışması: ${conflictingResources.join(', ')}`);
-            }
+          if (hasTimeOverlap) {
+              const reasons: string[] = [];
 
-            // If there is any blocking reason, add to conflicts
-            if (reasons.length > 0) {
-                detectedConflicts.push({
-                    event: e,
-                    reason: reasons.join(' & ')
-                });
-            }
-        }
-    });
+              // 1. Check Location Conflict
+              if (e.location === newEvent.location) {
+                  reasons.push(`Mekan Dolu: ${newEvent.location}`);
+              }
 
-    if (detectedConflicts.length > 0) {
-        setConflictingEvents(detectedConflicts);
-        setPendingEvent(newEvent);
-        setShowConflictView(true);
-    } else {
-        onSave(newEvent);
-        onClose();
+              // 2. Check Resource Conflict (Only for Exclusive Resources)
+              const conflictingResources = newEvent.resources.filter(r => 
+                  e.resources.includes(r) && EXCLUSIVE_RESOURCES.includes(r)
+              );
+
+              if (conflictingResources.length > 0) {
+                  reasons.push(`Ekipman Çakışması: ${conflictingResources.join(', ')}`);
+              }
+
+              // If there is any blocking reason, add to conflicts
+              if (reasons.length > 0) {
+                  detectedConflicts.push({
+                      event: e,
+                      reason: reasons.join(' & ')
+                  });
+              }
+          }
+      });
+
+      if (detectedConflicts.length > 0) {
+          setConflictingEvents(detectedConflicts);
+          setPendingEvent(newEvent);
+          setShowConflictView(true);
+      } else {
+          console.log('No conflicts, calling onSave');
+          await onSave(newEvent);
+          onClose();
+      }
+    } catch (error) {
+      console.error('Error in handleSubmit:', error);
+      alert('Bir hata oluştu: ' + (error instanceof Error ? error.message : 'Bilinmeyen hata'));
     }
   };
 

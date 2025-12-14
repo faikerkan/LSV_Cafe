@@ -4,30 +4,24 @@ import * as bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
 const router = Router();
-// const prisma = new PrismaClient(); // Removed
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_key';
 
-// Login Endpoint
 router.post('/login', async (req, res) => {
-  const { password } = req.body; // In this simple app, we only check password for admin
-
-  // Real implementation would check username too. 
-  // For compatibility with the frontend mock, we look for the 'admin' user if password matches 'admin123' logic, 
-  // OR we implement standard auth.
-
-  // Let's implement standard username/password auth but default username to 'admin' if not provided
+  console.log('LOGIN ATTEMPT DEBUG:', req.body);
+  const { password } = req.body;
+  // KULLANICI ADI YOKSA 'admin' KABUL ET
   const username = req.body.username || 'admin';
 
   try {
     const user = await prisma.user.findUnique({ where: { username } });
-
     if (!user) {
+      console.log('User not found:', username);
       return res.status(401).json({ success: false, message: 'Kullanıcı bulunamadı.' });
     }
 
     const isValid = await bcrypt.compare(password, user.passwordHash);
-
     if (!isValid) {
+      console.log('Invalid password for:', username);
       return res.status(401).json({ success: false, message: 'Hatalı şifre.' });
     }
 
@@ -43,6 +37,7 @@ router.post('/login', async (req, res) => {
       user: { username: user.username, role: user.role }
     });
   } catch (error) {
+    console.error('Login Error:', error);
     res.status(500).json({ success: false, message: 'Sunucu hatası.' });
   }
 });

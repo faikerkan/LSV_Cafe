@@ -42,6 +42,18 @@ const DEPT_COLORS: Record<string, string> = {
   [Department.INCI]: 'bg-rose-100 text-rose-800 border-rose-200',
 };
 
+// Safari gibi eski tarayıcılarda crypto.randomUUID yoksa geri dönüş
+const safeRandomId = () => {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+};
+
 const App: React.FC = () => {
   // --- State Initialization ---
   const [events, setEvents] = useState<CafeEvent[]>([]);
@@ -61,8 +73,20 @@ const App: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   
-  // Auth State
-  const [isAdmin, setIsAdmin] = useState(false);
+  // Auth State - Check localStorage on mount
+  const [isAdmin, setIsAdmin] = useState(() => {
+    try {
+      const token = localStorage.getItem('lsv_cafe_token');
+      const userStr = localStorage.getItem('lsv_cafe_user');
+      if (token && userStr) {
+        const user = JSON.parse(userStr);
+        return user.role === 'admin' || user.role === 'ADMIN';
+      }
+    } catch (e) {
+      console.error('Error reading auth state:', e);
+    }
+    return false;
+  });
 
   // Filter & Search State
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -107,7 +131,7 @@ const App: React.FC = () => {
 
   const addNotification = (title: string, message: string, type: AppNotification['type'], eventId?: string) => {
     const newNotif: AppNotification = {
-      id: crypto.randomUUID(),
+      id: safeRandomId(),
       title,
       message,
       timestamp: new Date().toISOString(),
@@ -265,19 +289,24 @@ const App: React.FC = () => {
 
   // --- Async Handlers ---
   const handleSaveEvent = async (newEvent: CafeEvent) => {
+    console.log('handleSaveEvent called with:', newEvent);
     const isEdit = events.some(e => e.id === newEvent.id);
     const securedEvent = isAdmin ? newEvent : { ...newEvent, status: EventStatus.PENDING };
 
     try {
+        console.log('isEdit:', isEdit, 'isAdmin:', isAdmin);
         if (isEdit) {
+            console.log('Updating event...');
             await api.updateEvent(securedEvent);
             addToast('success', 'Etkinlik başarıyla güncellendi.');
         } else {
+            console.log('Creating event...');
             await api.createEvent(securedEvent);
             addToast('success', 'Yeni etkinlik talebi oluşturuldu.');
         }
         
         // Refresh local state
+        console.log('Refreshing events...');
         await fetchEvents();
 
         // Notifications logic (keep mostly local for UI feedback)
@@ -298,9 +327,11 @@ const App: React.FC = () => {
                 securedEvent.id
             );
         }
+        console.log('Event saved successfully');
     } catch (err) {
-        addToast('error', 'İşlem sırasında bir hata oluştu.');
-        console.error(err);
+        console.error('Error in handleSaveEvent:', err);
+        const errorMessage = err instanceof Error ? err.message : 'İşlem sırasında bir hata oluştu.';
+        addToast('error', errorMessage);
     }
   };
 
@@ -550,7 +581,11 @@ const App: React.FC = () => {
              </div>
              {isAdmin ? (
                  <button 
-                    onClick={() => { setIsAdmin(false); addToast('info', 'Yönetici çıkışı yapıldı.'); }}
+                    onClick={() => { 
+                      api.logout();
+                      setIsAdmin(false); 
+                      addToast('info', 'Yönetici çıkışı yapıldı.'); 
+                    }}
                     className="w-full text-left text-sm text-red-300 hover:text-white flex items-center gap-2 transition"
                  >
                      <LogOut size={14}/> Çıkış Yap

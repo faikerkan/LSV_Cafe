@@ -5,6 +5,20 @@ import { CafeEvent, EventStatus, AppNotification } from '../types';
 const USE_MOCK_BACKEND = false;
 const API_BASE_URL = '/api';
 
+// Token helper functions
+const getToken = (): string | null => {
+  return localStorage.getItem('lsv_cafe_token');
+};
+
+const getAuthHeaders = (): HeadersInit => {
+  const token = getToken();
+  const headers: HeadersInit = { 'Content-Type': 'application/json' };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+};
+
 // Types
 export interface LoginResponse {
   success: boolean;
@@ -56,7 +70,10 @@ export const api = {
       await delay(500);
       return [...MOCK_DB_EVENTS];
     }
-    const res = await fetch(`${API_BASE_URL}/events`);
+    const res = await fetch(`${API_BASE_URL}/events`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to fetch events');
     return res.json();
   },
 
@@ -67,12 +84,21 @@ export const api = {
       localStorage.setItem('lsv_cafe_events', JSON.stringify(MOCK_DB_EVENTS));
       return event;
     }
+    console.log('Creating event:', event);
     const res = await fetch(`${API_BASE_URL}/events`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify(event)
     });
-    return res.json();
+    console.log('Create event response status:', res.status);
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({ error: 'Unknown error' }));
+      console.error('Create event error:', errorData);
+      throw new Error(errorData.message || errorData.error || 'Failed to create event');
+    }
+    const result = await res.json();
+    console.log('Create event success:', result);
+    return result;
   },
 
   updateEvent: async (event: CafeEvent): Promise<CafeEvent> => {
@@ -84,9 +110,10 @@ export const api = {
     }
     const res = await fetch(`${API_BASE_URL}/events/${event.id}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify(event)
     });
+    if (!res.ok) throw new Error('Failed to update event');
     return res.json();
   },
 
@@ -97,6 +124,16 @@ export const api = {
       localStorage.setItem('lsv_cafe_events', JSON.stringify(MOCK_DB_EVENTS));
       return;
     }
-    await fetch(`${API_BASE_URL}/events/${id}`, { method: 'DELETE' });
+    const res = await fetch(`${API_BASE_URL}/events/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to delete event');
+  },
+
+  // Logout helper
+  logout: (): void => {
+    localStorage.removeItem('lsv_cafe_token');
+    localStorage.removeItem('lsv_cafe_user');
   }
 };

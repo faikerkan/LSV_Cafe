@@ -20,7 +20,10 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin
 
     try {
         const response = await api.login(password);
-        if (response.success) {
+        if (response.success && response.token) {
+            // Token'ı localStorage'a kaydet
+            localStorage.setItem('lsv_cafe_token', response.token);
+            localStorage.setItem('lsv_cafe_user', JSON.stringify(response.user || { username: 'admin', role: 'admin' }));
             onLogin(true);
             setPassword('');
             onClose();
