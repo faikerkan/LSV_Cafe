@@ -27,26 +27,10 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
-// CORS configuration
-const allowedOrigins = process.env.FRONTEND_URL 
-  ? process.env.FRONTEND_URL.split(',') 
-  : ['http://localhost:5173', 'http://localhost:3000'];
-
+// CORS configuration - Allow all origins in production for now
+// TODO: Set FRONTEND_URL environment variable for production
 app.use(cors({
-  origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, curl, etc.)
-    if (!origin) return callback(null, true);
-    
-    // In development, allow all origins
-    if (NODE_ENV === 'development') return callback(null, true);
-    
-    // In production, check whitelist
-    if (allowedOrigins.some(allowed => origin.startsWith(allowed))) {
-      return callback(null, true);
-    }
-    
-    return callback(new Error('CORS policy: Origin not allowed'));
-  },
+  origin: true, // Allow all origins
   credentials: true
 }));
 
