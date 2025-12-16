@@ -54,3 +54,57 @@ export interface AppNotification {
   type: 'status_change' | 'reminder' | 'system';
   eventId?: string;
 }
+
+// Admin Panel Types
+export interface User {
+  id: string;
+  username: string;
+  role: 'ADMIN' | 'USER';
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface DepartmentConfig {
+  id: string;
+  name: string;
+  code?: string;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ResourceConfig {
+  id: string;
+  name: string;
+  type: 'equipment' | 'consumable';
+  exclusive: boolean;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LocationConfig {
+  id: string;
+  name: string;
+  capacity?: number;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EventLog {
+  id: string;
+  eventId: string;
+  action: string;
+  actorId?: string;
+  payload?: string;
+  createdAt: string;
+  event?: {
+    id: string;
+    title: string;
+  };
+  actor?: {
+    id: string;
+    username: string;
+  };
+}

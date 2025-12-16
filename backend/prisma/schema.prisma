@@ -8,37 +8,132 @@ datasource db {
 }
 
 model User {
-  id           String   @id @default(uuid())
-  username     String   @unique
-  passwordHash String   @map("password_hash")
-  role         Role     @default(USER)
-  createdAt    DateTime @default(now()) @map("created_at")
+  id           String      @id @default(uuid())
+  username     String      @unique
+  passwordHash String      @map("password_hash")
+  role         Role        @default(USER)
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+  
+  // Relations
+  createdEvents Event[]    @relation("EventCreator")
+  updatedEvents Event[]    @relation("EventUpdater")
+  eventLogs     EventLog[]
 
   @@map("users")
+}
+
+model Department {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  code      String?  @unique
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  
+  // Relations
+  events Event[]
+
+  @@map("departments")
+}
+
+model Resource {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  type      String   // 'equipment' (exclusive) or 'consumable' (non-exclusive)
+  exclusive Boolean  @default(false) // if true, only one event can use at a time
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  
+  // Relations
+  eventResources EventResource[]
+
+  @@map("resources")
+}
+
+model Location {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  capacity  Int?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  
+  // Relations
+  events Event[]
+
+  @@map("locations")
 }
 
 model Event {
   id              String     @id @default(uuid())
   title           String
-  department      String
+  departmentId    String?    @map("department_id")
   description     String
   startDate       DateTime   @map("start_date")
   endDate         DateTime   @map("end_date")
-  status          String     @default("Onay Bekliyor")
-  location        String
+  status          EventStatus @default(PENDING)
+  locationId      String?    @map("location_id")
   attendees       Int
   contactPerson   String     @map("contact_person")
   requirements    String?
-  resources       String[]
   actualAttendees Int?       @map("actual_attendees")
   outcomeNotes    String?    @map("outcome_notes")
+  createdById     String?    @map("created_by_id")
+  updatedById     String?    @map("updated_by_id")
   createdAt       DateTime   @default(now()) @map("created_at")
   updatedAt       DateTime   @updatedAt @map("updated_at")
 
+  // Relations
+  department      Department?       @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  location        Location?         @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  createdBy       User?             @relation("EventCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy       User?             @relation("EventUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+  eventResources  EventResource[]
+  eventLogs       EventLog[]
+
   @@map("events")
+}
+
+model EventResource {
+  id         String   @id @default(uuid())
+  eventId    String   @map("event_id")
+  resourceId String   @map("resource_id")
+  quantity   Int      @default(1)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  // Relations
+  event    Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  resource Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, resourceId])
+  @@map("event_resources")
+}
+
+model EventLog {
+  id        String   @id @default(uuid())
+  eventId   String   @map("event_id")
+  action    String   // 'create', 'update', 'approve', 'reject', 'delete'
+  actorId   String?  @map("actor_id")
+  payload   String?  @db.Text // JSON snapshot of changes
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@map("event_logs")
 }
 
 enum Role {
   ADMIN
   USER
+}
+
+enum EventStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  COMPLETED
 }

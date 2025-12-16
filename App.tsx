@@ -28,6 +28,7 @@ import { EventModal } from './components/EventModal';
 import { LoginModal } from './components/LoginModal';
 import { ToastContainer, ToastMessage, ToastType } from './components/Toast';
 import { NotificationCenter } from './components/NotificationCenter';
+import AdminPanel from './components/admin/AdminPanel';
 import { api } from './services/api';
 
 // Department Colors Constant
@@ -72,6 +73,7 @@ const App: React.FC = () => {
   const [view, setView] = useState<'calendar' | 'list'>('calendar');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
   
   // Auth State - Check localStorage on mount
   const [isAdmin, setIsAdmin] = useState(() => {
@@ -570,6 +572,15 @@ const App: React.FC = () => {
             <List size={20} />
             <span>Liste Görünümü</span>
           </button>
+          {isAdmin && (
+            <button 
+              onClick={() => setIsAdminPanelOpen(true)}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-lg transition bg-purple-600 hover:bg-purple-700"
+            >
+              <Users size={20} />
+              <span>Admin Panel</span>
+            </button>
+          )}
         </nav>
 
         <div className="p-4 bg-slate-800 mt-2 mx-2 rounded-lg">
@@ -983,6 +994,12 @@ const App: React.FC = () => {
         existingEvent={editingEvent}
         existingEvents={events}
         isAdmin={isAdmin}
+      />
+
+      {/* Admin Panel */}
+      <AdminPanel 
+        isOpen={isAdminPanelOpen} 
+        onClose={() => setIsAdminPanelOpen(false)} 
       />
     </div>
   );
