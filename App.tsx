@@ -76,6 +76,11 @@ const App: React.FC = () => {
   const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
   
   // Auth State - Check localStorage on mount
+  const [isLoggedIn, setIsLoggedIn] = useState(() => {
+    const token = localStorage.getItem('lsv_cafe_token');
+    return !!token;
+  });
+
   const [isAdmin, setIsAdmin] = useState(() => {
     try {
       const token = localStorage.getItem('lsv_cafe_token');
@@ -89,6 +94,8 @@ const App: React.FC = () => {
     }
     return false;
   });
+
+  const [pendingEventModal, setPendingEventModal] = useState(false);
 
   // Filter & Search State
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -585,17 +592,34 @@ const App: React.FC = () => {
 
         <div className="p-4 bg-slate-800 mt-2 mx-2 rounded-lg">
              <div className="flex items-center gap-2 mb-2">
-                 {isAdmin ? <ShieldCheck className="text-green-400" size={18} /> : <ShieldAlert className="text-gray-400" size={18}/>}
+                 {isAdmin ? <ShieldCheck className="text-green-400" size={18} /> : 
+                  isLoggedIn ? <Users className="text-blue-400" size={18} /> :
+                  <ShieldAlert className="text-gray-400" size={18}/>}
                  <span className="text-xs font-semibold text-slate-300 uppercase">
-                     {isAdmin ? 'Yönetici Modu' : 'Kullanıcı Modu'}
+                     {isAdmin ? 'Yönetici' : isLoggedIn ? 'Kullanıcı' : 'Misafir'}
                  </span>
              </div>
-             {isAdmin ? (
+             
+             {isLoggedIn && (
+                 <div className="text-xs text-slate-400 mb-2">
+                     {(() => {
+                         const userStr = localStorage.getItem('lsv_cafe_user');
+                         if (userStr) {
+                             const user = JSON.parse(userStr);
+                             return user.username;
+                         }
+                         return '';
+                     })()}
+                 </div>
+             )}
+             
+             {isLoggedIn ? (
                  <button 
                     onClick={() => { 
                       api.logout();
+                      setIsLoggedIn(false);
                       setIsAdmin(false); 
-                      addToast('info', 'Yönetici çıkışı yapıldı.'); 
+                      addToast('info', 'Çıkış yapıldı.'); 
                     }}
                     className="w-full text-left text-sm text-red-300 hover:text-white flex items-center gap-2 transition"
                  >
@@ -606,14 +630,22 @@ const App: React.FC = () => {
                     onClick={() => setIsLoginModalOpen(true)}
                     className="w-full text-left text-sm text-slate-400 hover:text-white flex items-center gap-2 transition"
                  >
-                     <Lock size={14}/> Yönetici Girişi
+                     <Lock size={14}/> Kullanıcı Girişi
                  </button>
              )}
         </div>
 
         <div className="p-6">
             <button 
-              onClick={() => { setEditingEvent(null); setIsModalOpen(true); }}
+              onClick={() => { 
+                if (isLoggedIn) {
+                  setEditingEvent(null); 
+                  setIsModalOpen(true);
+                } else {
+                  setPendingEventModal(true);
+                  setIsLoginModalOpen(true);
+                }
+              }}
               className="w-full bg-indigo-500 hover:bg-indigo-600 text-white py-3 rounded-lg shadow-lg flex items-center justify-center gap-2 font-medium transition"
             >
                 <Plus size={20} />
@@ -980,8 +1012,29 @@ const App: React.FC = () => {
       {/* Auth Modal */}
       <LoginModal 
         isOpen={isLoginModalOpen} 
-        onClose={() => { setIsLoginModalOpen(false); if(isAdmin) addToast('success', 'Yönetici girişi başarılı.'); }} 
-        onLogin={setIsAdmin} 
+        onClose={() => { 
+          setIsLoginModalOpen(false);
+          setPendingEventModal(false);
+        }} 
+        onLogin={(success) => {
+          if (success) {
+            setIsLoggedIn(true);
+            // Role kontrolü
+            const userStr = localStorage.getItem('lsv_cafe_user');
+            if (userStr) {
+              const user = JSON.parse(userStr);
+              setIsAdmin(user.role === 'ADMIN');
+              addToast('success', `Hoş geldiniz, ${user.username}!`);
+            }
+            
+            // Eğer etkinlik modalı bekliyorsa aç
+            if (pendingEventModal) {
+              setPendingEventModal(false);
+              setEditingEvent(null);
+              setIsModalOpen(true);
+            }
+          }
+        }} 
       />
 
       {/* Event Modal */}

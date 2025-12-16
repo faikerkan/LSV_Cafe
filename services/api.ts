@@ -42,24 +42,24 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 export const api = {
   // --- AUTH ---
-  login: async (password: string): Promise<LoginResponse> => {
+  login: async (username: string, password: string): Promise<LoginResponse> => {
     if (USE_MOCK_BACKEND) {
       await delay(800); // Simulate network latency
-      if (password === 'admin123') {
+      if (username === 'admin' && password === 'admin123') {
         return {
           success: true,
           token: 'mock-jwt-token-xyz',
           user: { username: 'admin', role: 'admin' }
         };
       }
-      return { success: false, message: 'Hatalı parola.' };
+      return { success: false, message: 'Hatalı kullanıcı adı veya parola.' };
     }
 
     // Real Backend Call
     const res = await fetch(`${API_BASE_URL}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password })
+      body: JSON.stringify({ username, password })
     });
     return res.json();
   },
