@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { CafeEvent, Department, EventStatus, LOCATIONS, RESOURCES } from '../types';
+import { CafeEvent, Department, EventStatus, LOCATIONS, RESOURCES, DepartmentConfig, ResourceConfig, LocationConfig } from '../types';
 import { X, AlertTriangle, CalendarClock, ChevronLeft, MapPin, Box, Printer, AlertCircle, ClipboardCheck, TrendingUp, TrendingDown, Minus, Info, Clock } from 'lucide-react';
 
 // Sadece belirli ekipmanlar çakışma yaratır. Yiyecek/İçecekler paylaşılabilir.
@@ -26,6 +26,12 @@ interface EventModalProps {
   existingEvent?: CafeEvent | null;
   existingEvents: CafeEvent[];
   isAdmin?: boolean;
+  
+  // Yeni props - dinamik listeler
+  departments: DepartmentConfig[];
+  resources: ResourceConfig[];
+  locations: LocationConfig[];
+  configLoading: boolean;
 }
 
 interface ConflictDetail {
@@ -41,16 +47,20 @@ export const EventModal: React.FC<EventModalProps> = ({
   initialDate, 
   existingEvent,
   existingEvents,
-  isAdmin = false
+  isAdmin = false,
+  departments,
+  resources,
+  locations,
+  configLoading
 }) => {
   // Conflict Handling
   const [conflictingEvents, setConflictingEvents] = useState<ConflictDetail[]>([]);
   const [showConflictView, setShowConflictView] = useState(false);
   const [pendingEvent, setPendingEvent] = useState<CafeEvent | null>(null);
 
-  // Form State
+  // Form State (UUID bazlı)
   const [title, setTitle] = useState('');
-  const [department, setDepartment] = useState<Department>(Department.PR);
+  const [departmentId, setDepartmentId] = useState<string>('');
   const [startDate, setStartDate] = useState('');
   const [startTime, setStartTime] = useState('09:00');
   const [endTime, setEndTime] = useState('10:00');
@@ -58,8 +68,8 @@ export const EventModal: React.FC<EventModalProps> = ({
   const [contactPerson, setContactPerson] = useState('');
   const [description, setDescription] = useState('');
   const [requirements, setRequirements] = useState('');
-  const [location, setLocation] = useState<string>(LOCATIONS[0]);
-  const [selectedResources, setSelectedResources] = useState<string[]>([]);
+  const [locationId, setLocationId] = useState<string>('');
+  const [selectedResourceIds, setSelectedResourceIds] = useState<string[]>([]);
   
   // Report State
   const [actualAttendees, setActualAttendees] = useState<number | ''>('');
@@ -68,7 +78,7 @@ export const EventModal: React.FC<EventModalProps> = ({
   // Reset function
   const resetForm = () => {
     setTitle('');
-    setDepartment(Department.PR);
+    setDepartmentId('');
     if (initialDate) {
         setStartDate(initialDate.toISOString().split('T')[0]);
     } else {
@@ -80,8 +90,8 @@ export const EventModal: React.FC<EventModalProps> = ({
     setContactPerson('');
     setDescription('');
     setRequirements('');
-    setLocation(LOCATIONS[0]);
-    setSelectedResources([]);
+    setLocationId('');
+    setSelectedResourceIds([]);
     setConflictingEvents([]);
     setShowConflictView(false);
     setPendingEvent(null);
@@ -93,7 +103,41 @@ export const EventModal: React.FC<EventModalProps> = ({
     if (isOpen) {
       if (existingEvent) {
         setTitle(existingEvent.title);
-        setDepartment(existingEvent.department);
+        
+        // Departman - UUID'den çalış, yoksa eski string'i map et (geriye dönük uyumluluk)
+        if (existingEvent.departmentId) {
+          setDepartmentId(existingEvent.departmentId);
+        } else if (existingEvent.department && departments.length > 0) {
+          // Eski string department name'i UUID'ye map et
+          const dept = departments.find(d => d.name === existingEvent.department);
+          setDepartmentId(dept?.id || '');
+        } else {
+          setDepartmentId('');
+        }
+        
+        // Lokasyon - UUID'den çalış, yoksa eski string'i map et
+        if (existingEvent.locationId) {
+          setLocationId(existingEvent.locationId);
+        } else if (existingEvent.location && locations.length > 0) {
+          const loc = locations.find(l => l.name === existingEvent.location);
+          setLocationId(loc?.id || '');
+        } else {
+          setLocationId('');
+        }
+        
+        // Kaynaklar - UUID'lerden çalış, yoksa eski string'leri map et
+        if (existingEvent.resourceIds) {
+          setSelectedResourceIds(existingEvent.resourceIds);
+        } else if (existingEvent.resources && resources.length > 0) {
+          // String name'lerden UUID'lere map et
+          const ids = existingEvent.resources
+            .map(name => resources.find(r => r.name === name)?.id)
+            .filter((id): id is string => !!id);
+          setSelectedResourceIds(ids);
+        } else {
+          setSelectedResourceIds([]);
+        }
+        
         const start = new Date(existingEvent.startDate);
         const end = new Date(existingEvent.endDate);
         setStartDate(start.toISOString().split('T')[0]);
@@ -103,8 +147,6 @@ export const EventModal: React.FC<EventModalProps> = ({
         setContactPerson(existingEvent.contactPerson);
         setDescription(existingEvent.description);
         setRequirements(existingEvent.requirements || '');
-        setLocation(existingEvent.location || LOCATIONS[0]);
-        setSelectedResources(existingEvent.resources || []);
         setActualAttendees(existingEvent.actualAttendees || '');
         setOutcomeNotes(existingEvent.outcomeNotes || '');
       } else {
@@ -112,7 +154,7 @@ export const EventModal: React.FC<EventModalProps> = ({
       }
       setShowConflictView(false);
     }
-  }, [isOpen, initialDate, existingEvent]);
+  }, [isOpen, initialDate, existingEvent, departments, resources, locations]);
 
   // --- Real-time Schedule Preview Logic ---
   const eventsOnSelectedDate = useMemo(() => {
@@ -129,9 +171,9 @@ export const EventModal: React.FC<EventModalProps> = ({
     }).sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
   }, [startDate, existingEvents, existingEvent]);
 
-  const handleResourceToggle = (res: string) => {
-    setSelectedResources(prev => 
-      prev.includes(res) ? prev.filter(r => r !== res) : [...prev, res]
+  const handleResourceToggle = (resId: string) => {
+    setSelectedResourceIds(prev => 
+      prev.includes(resId) ? prev.filter(r => r !== resId) : [...prev, resId]
     );
   };
 
@@ -166,7 +208,19 @@ export const EventModal: React.FC<EventModalProps> = ({
       const newEvent: CafeEvent = {
         id: existingEvent ? existingEvent.id : safeRandomId(),
         title: title.trim(),
-        department,
+        
+        // UUID bazlı yeni alanlar
+        departmentId: departmentId || null,
+        locationId: locationId || null,
+        resourceIds: selectedResourceIds,
+        
+        // Display için deprecated alanlar (backend response'dan güncellenecek)
+        department: departments.find(d => d.id === departmentId)?.name,
+        location: locations.find(l => l.id === locationId)?.name,
+        resources: selectedResourceIds.map(id => 
+          resources.find(r => r.id === id)?.name || ''
+        ).filter(Boolean),
+        
         description: description.trim(),
         startDate: startDateTime.toISOString(),
         endDate: endDateTime.toISOString(),
@@ -174,8 +228,6 @@ export const EventModal: React.FC<EventModalProps> = ({
         status: existingEvent ? existingEvent.status : EventStatus.PENDING,
         contactPerson: contactPerson.trim(),
         requirements: requirements.trim() || undefined,
-        location,
-        resources: selectedResources,
         actualAttendees: actualAttendees === '' ? undefined : Number(actualAttendees),
         outcomeNotes: outcomeNotes.trim() || undefined
       };
@@ -207,18 +259,26 @@ export const EventModal: React.FC<EventModalProps> = ({
           if (hasTimeOverlap) {
               const reasons: string[] = [];
 
-              // 1. Check Location Conflict
-              if (e.location === newEvent.location) {
-                  reasons.push(`Mekan Dolu: ${newEvent.location}`);
+              // 1. Check Location Conflict (UUID bazlı)
+              if (e.locationId && newEvent.locationId && e.locationId === newEvent.locationId) {
+                  const locName = locations.find(l => l.id === newEvent.locationId)?.name || 'Bilinmeyen';
+                  reasons.push(`Mekan Dolu: ${locName}`);
               }
 
-              // 2. Check Resource Conflict (Only for Exclusive Resources)
-              const conflictingResources = newEvent.resources.filter(r => 
-                  e.resources.includes(r) && EXCLUSIVE_RESOURCES.includes(r)
-              );
-
-              if (conflictingResources.length > 0) {
-                  reasons.push(`Ekipman Çakışması: ${conflictingResources.join(', ')}`);
+              // 2. Check Resource Conflict (UUID bazlı - Sadece Exclusive kaynaklar)
+              if (newEvent.resourceIds && e.resourceIds) {
+                const conflictingResourceIds = newEvent.resourceIds.filter(rId => {
+                  const resource = resources.find(r => r.id === rId);
+                  return resource?.exclusive && e.resourceIds?.includes(rId);
+                });
+                
+                if (conflictingResourceIds.length > 0) {
+                  const names = conflictingResourceIds
+                    .map(id => resources.find(r => r.id === id)?.name)
+                    .filter(Boolean)
+                    .join(', ');
+                  reasons.push(`Ekipman Çakışması: ${names}`);
+                }
               }
 
               // If there is any blocking reason, add to conflicts
@@ -375,29 +435,44 @@ export const EventModal: React.FC<EventModalProps> = ({
 
                 <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-1">Departman</label>
-                    <select 
-                    value={department}
-                    onChange={(e) => setDepartment(e.target.value as Department)}
-                    className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 outline-none"
-                    >
-                    {Object.values(Department).map(dept => (
-                        <option key={dept} value={dept}>{dept}</option>
-                    ))}
-                    </select>
+                    {configLoading ? (
+                      <div className="w-full p-2 border border-gray-300 rounded bg-gray-50 text-gray-500">Yükleniyor...</div>
+                    ) : (
+                      <select 
+                        value={departmentId}
+                        onChange={(e) => setDepartmentId(e.target.value)}
+                        className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 outline-none"
+                        required
+                      >
+                        <option value="">-- Departman Seçin --</option>
+                        {departments.map(dept => (
+                          <option key={dept.id} value={dept.id}>
+                            {dept.name} {dept.code && `(${dept.code})`}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                 </div>
 
                 <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-1">Mekan / Salon</label>
-                    <select 
-                    value={location}
-                    onChange={(e) => setLocation(e.target.value)}
-                    disabled
-                    className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-gray-600 cursor-not-allowed outline-none"
-                    >
-                    {LOCATIONS.map(loc => (
-                        <option key={loc} value={loc}>{loc}</option>
-                    ))}
-                    </select>
+                    {configLoading ? (
+                      <div className="w-full p-2 border border-gray-300 rounded bg-gray-50 text-gray-500">Yükleniyor...</div>
+                    ) : (
+                      <select 
+                        value={locationId}
+                        onChange={(e) => setLocationId(e.target.value)}
+                        className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 outline-none"
+                        required
+                      >
+                        <option value="">-- Mekan Seçin --</option>
+                        {locations.map(loc => (
+                          <option key={loc.id} value={loc.id}>
+                            {loc.name} {loc.capacity && `(Kapasite: ${loc.capacity})`}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                 </div>
 
                 <div>
@@ -494,27 +569,31 @@ export const EventModal: React.FC<EventModalProps> = ({
                         Gerekli Kaynaklar / Ekipmanlar
                         <span className="text-xs font-normal text-gray-400">* işaretliler çakışma yaratabilir</span>
                     </label>
-                    <div className="flex flex-wrap gap-2 p-2 bg-gray-50 border rounded-lg">
-                        {RESOURCES.map(res => {
-                            const isExclusive = EXCLUSIVE_RESOURCES.includes(res);
+                    {configLoading ? (
+                      <div className="p-2 border border-gray-300 rounded bg-gray-50 text-gray-500">Yükleniyor...</div>
+                    ) : (
+                      <div className="flex flex-wrap gap-2 p-2 bg-gray-50 border rounded-lg">
+                        {resources.map(res => {
+                            const isExclusive = res.exclusive;
                             return (
                                 <button
-                                    key={res}
+                                    key={res.id}
                                     type="button"
-                                    onClick={() => handleResourceToggle(res)}
+                                    onClick={() => handleResourceToggle(res.id)}
                                     className={`px-3 py-1.5 rounded-full text-xs font-medium border transition flex items-center gap-1 ${
-                                        selectedResources.includes(res) 
+                                        selectedResourceIds.includes(res.id) 
                                         ? 'bg-blue-600 text-white border-blue-600 shadow-sm' 
                                         : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400'
                                     }`}
                                 >
-                                    {selectedResources.includes(res) && <Box size={12}/>}
-                                    {res}
+                                    {selectedResourceIds.includes(res.id) && <Box size={12}/>}
+                                    {res.name}
                                     {isExclusive && <span className="text-[10px] ml-1 opacity-70">*</span>}
                                 </button>
                             );
                         })}
-                    </div>
+                      </div>
+                    )}
                 </div>
 
                 <div className="col-span-2">

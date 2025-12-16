@@ -1,14 +1,14 @@
 import { Router } from 'express';
 import prisma from '../lib/prisma';
-import { authenticate, requireAdmin } from '../middleware/auth';
+import { authenticate, requireAdmin, optionalAuth } from '../middleware/auth';
 
 const router = Router();
 
-// All config routes require admin except GET (read-only for all authenticated users)
+// All config routes require admin except GET (read-only, optionally authenticated)
 
 // ===== DEPARTMENTS =====
 
-router.get('/departments', authenticate, async (req, res) => {
+router.get('/departments', optionalAuth, async (req, res) => {
   try {
     const departments = await prisma.department.findMany({
       where: { active: true },
@@ -92,7 +92,7 @@ router.delete('/departments/:id', authenticate, requireAdmin, async (req, res) =
 
 // ===== RESOURCES =====
 
-router.get('/resources', authenticate, async (req, res) => {
+router.get('/resources', optionalAuth, async (req, res) => {
   try {
     const resources = await prisma.resource.findMany({
       where: { active: true },
@@ -186,7 +186,7 @@ router.delete('/resources/:id', authenticate, requireAdmin, async (req, res) => 
 
 // ===== LOCATIONS =====
 
-router.get('/locations', authenticate, async (req, res) => {
+router.get('/locations', optionalAuth, async (req, res) => {
   try {
     const locations = await prisma.location.findMany({
       where: { active: true },

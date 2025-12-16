@@ -1,4 +1,4 @@
-
+/** @deprecated - Departments are now fetched from API as DepartmentConfig */
 export enum Department {
   PR = 'Halkla İlişkiler',
   CORP_COMM = 'Kurumlarla İletişim',
@@ -17,13 +17,29 @@ export enum EventStatus {
   COMPLETED = 'Tamamlandı'
 }
 
+/** @deprecated - Locations are now fetched from API as LocationConfig */
 export const LOCATIONS = ['LSV Cafe'];
+
+/** @deprecated - Resources are now fetched from API as ResourceConfig */
 export const RESOURCES = ['Kuru Pasta', 'Kutlama Pastası', 'Soğuk İçecek', 'Sıcak İçecek', 'Projeksiyon', 'Ses Sistemi'];
 
 export interface CafeEvent {
   id: string;
   title: string;
-  department: Department;
+  
+  // UUID bazlı yeni alanlar (backend ile uyumlu)
+  departmentId?: string | null;
+  locationId?: string | null;
+  resourceIds?: string[];
+  
+  // Geriye dönük uyumluluk için deprecated alanlar
+  /** @deprecated Use departmentId instead */
+  department?: string;
+  /** @deprecated Use locationId instead */
+  location?: string;
+  /** @deprecated Use resourceIds instead - only for display */
+  resources?: string[];
+  
   description: string;
   startDate: string; // ISO string
   endDate: string; // ISO string
@@ -31,12 +47,16 @@ export interface CafeEvent {
   status: EventStatus;
   contactPerson: string;
   requirements?: string;
-  location: string;
-  resources: string[];
   
   // Post-Event Reporting Fields
   actualAttendees?: number;
   outcomeNotes?: string;
+  
+  // Audit fields (backend'den gelecek)
+  createdBy?: { id: string; username: string };
+  updatedBy?: { id: string; username: string };
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface ConflictResult {

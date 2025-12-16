@@ -23,7 +23,7 @@ import {
   Loader2,
   RefreshCw
 } from 'lucide-react';
-import { CafeEvent, Department, EventStatus, LOCATIONS, AppNotification } from './types';
+import { CafeEvent, Department, EventStatus, LOCATIONS, AppNotification, DepartmentConfig, ResourceConfig, LocationConfig } from './types';
 import { EventModal } from './components/EventModal';
 import { LoginModal } from './components/LoginModal';
 import { ToastContainer, ToastMessage, ToastType } from './components/Toast';
@@ -59,6 +59,12 @@ const App: React.FC = () => {
   // --- State Initialization ---
   const [events, setEvents] = useState<CafeEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  
+  // Dinamik config listeleri (departman, kaynak, mekan)
+  const [departments, setDepartments] = useState<DepartmentConfig[]>([]);
+  const [resources, setResources] = useState<ResourceConfig[]>([]);
+  const [locations, setLocations] = useState<LocationConfig[]>([]);
+  const [configLoading, setConfigLoading] = useState(true);
   
   // Local state for notifications (simpler to keep local for MVP, but can be moved to API too)
   const [notifications, setNotifications] = useState<AppNotification[]>(() => {
@@ -127,8 +133,30 @@ const App: React.FC = () => {
     }
   };
 
+  // Load configuration data (departments, resources, locations)
+  // Config endpoint'leri optional auth kullandığı için giriş yapmadan da çalışır
+  const fetchConfig = async () => {
+    try {
+      setConfigLoading(true);
+      const [depts, res, locs] = await Promise.all([
+        api.getDepartments(),
+        api.getResources(),
+        api.getLocations()
+      ]);
+      setDepartments(depts.filter(d => d.active));
+      setResources(res.filter(r => r.active));
+      setLocations(locs.filter(l => l.active));
+    } catch (error) {
+      console.error('Config fetch error:', error);
+      addToast('error', 'Ayarlar yüklenemedi.');
+    } finally {
+      setConfigLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchEvents();
+    fetchConfig(); // Config'i de başlangıçta çek
   }, []);
 
   // Persistence Effect for Notifications
@@ -1047,6 +1075,10 @@ const App: React.FC = () => {
         existingEvent={editingEvent}
         existingEvents={events}
         isAdmin={isAdmin}
+        departments={departments}
+        resources={resources}
+        locations={locations}
+        configLoading={configLoading}
       />
 
       {/* Admin Panel */}
