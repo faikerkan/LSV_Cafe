@@ -11,11 +11,19 @@ export enum Department {
 }
 
 export enum EventStatus {
-  PENDING = 'Onay Bekliyor',
-  APPROVED = 'Onaylandı',
-  REJECTED = 'İptal/Red',
-  COMPLETED = 'Tamamlandı'
+  PENDING = 'PENDING',
+  APPROVED = 'APPROVED',
+  REJECTED = 'REJECTED',
+  COMPLETED = 'COMPLETED'
 }
+
+// Display labels for Turkish UI
+export const EventStatusLabels: Record<EventStatus, string> = {
+  [EventStatus.PENDING]: 'Onay Bekliyor',
+  [EventStatus.APPROVED]: 'Onaylandı',
+  [EventStatus.REJECTED]: 'İptal/Red',
+  [EventStatus.COMPLETED]: 'Tamamlandı'
+};
 
 /** @deprecated - Locations are now fetched from API as LocationConfig */
 export const LOCATIONS = ['LSV Cafe'];

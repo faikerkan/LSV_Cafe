@@ -23,17 +23,13 @@ import {
   Loader2,
   RefreshCw
 } from 'lucide-react';
-import { CafeEvent, Department, EventStatus, EventStatusLabels, LOCATIONS, AppNotification, DepartmentConfig, ResourceConfig, LocationConfig } from './types';
+import { CafeEvent, Department, EventStatus, LOCATIONS, AppNotification, DepartmentConfig, ResourceConfig, LocationConfig } from './types';
 import { EventModal } from './components/EventModal';
 import { LoginModal } from './components/LoginModal';
 import { ToastContainer, ToastMessage, ToastType } from './components/Toast';
 import { NotificationCenter } from './components/NotificationCenter';
 import AdminPanel from './components/admin/AdminPanel';
 import { api } from './services/api';
-import { useEvents, useCreateEvent, useUpdateEvent, useDeleteEvent, useApproveEvent, useRejectEvent } from './hooks/useEvents';
-import { useConfig } from './hooks/useConfig';
-import { EventListSkeleton } from './components/EventCardSkeleton';
-import { MobileHeader, MobileDrawer, BottomNav } from './components/mobile';
 
 // Department Colors Constant
 const DEPT_COLORS: Record<string, string> = {
@@ -60,10 +56,6 @@ const safeRandomId = () => {
 };
 
 const App: React.FC = () => {
-  // --- React Query Hooks ---
-  const approveEventMutation = useApproveEvent();
-  const rejectEventMutation = useRejectEvent();
-  
   // --- State Initialization ---
   const [events, setEvents] = useState<CafeEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -124,10 +116,6 @@ const App: React.FC = () => {
 
   // Toast State
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
-
-  // Mobile Navigation State
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [showNotifications, setShowNotifications] = useState(false);
 
   // --- Effects ---
   
@@ -401,56 +389,26 @@ const App: React.FC = () => {
     const event = events.find(e => e.id === id);
     if (!event) return;
 
+    const updatedEvent = { ...event, status: newStatus };
+    
     try {
-        // Özel approve/reject endpoint'lerini kullan
-        if (newStatus === EventStatus.APPROVED) {
-            await approveEventMutation.mutateAsync(id);
-            
-            addToast('success', 'Etkinlik onaylandı!');
-            addNotification(
-                'Etkinlik Onaylandı',
-                `"${event.title}" etkinliği onaylandı.`,
-                'approved',
-                event.id
-            );
-            
-            // React Query otomatik refetch yapacak
-        } else if (newStatus === EventStatus.REJECTED) {
-            // Rejection reason sor
-            const reason = prompt('Red nedeni (opsiyonel):');
-            
-            await rejectEventMutation.mutateAsync({ id, reason: reason || undefined });
-            
-            addToast('success', 'Etkinlik reddedildi.');
-            addNotification(
-                'Etkinlik Reddedildi',
-                `"${event.title}" etkinliği reddedildi.${reason ? ` Neden: ${reason}` : ''}`,
-                'rejected',
-                event.id
-            );
-            
-            // React Query otomatik refetch yapacak
-        } else {
-            // Diğer status değişiklikleri için normal update kullan
-            const updatedEvent = { ...event, status: newStatus };
-            await api.updateEvent(updatedEvent);
-            await fetchEvents();
-            
-            const actionText = 
-                newStatus === EventStatus.COMPLETED ? 'tamamlandı olarak işaretlendi' : 
-                'beklemeye alındı';
+        await api.updateEvent(updatedEvent);
+        await fetchEvents();
+        addToast('success', `Durum güncellendi: ${newStatus}`);
 
-            addToast('success', `Durum güncellendi: ${newStatus}`);
-            addNotification(
-                'Durum Değişikliği',
-                `"${event.title}" etkinliği ${actionText}.`,
-                'status_change',
-                event.id
-            );
-        }
-    } catch (err: any) {
-        console.error('Status update error:', err);
-        addToast('error', err?.message || 'Durum güncellenemedi.');
+        const actionText = 
+            newStatus === EventStatus.APPROVED ? 'onaylandı' :
+            newStatus === EventStatus.REJECTED ? 'reddedildi' :
+            newStatus === EventStatus.COMPLETED ? 'tamamlandı olarak işaretlendi' : 'beklemeye alındı';
+
+        addNotification(
+            'Durum Değişikliği',
+            `"${event.title}" etkinliği ${actionText}.`,
+            'status_change',
+            event.id
+        );
+    } catch (err) {
+        addToast('error', 'Durum güncellenemedi.');
     }
   };
 
@@ -627,51 +585,8 @@ const App: React.FC = () => {
     <div className="min-h-screen flex flex-col md:flex-row bg-gray-50 text-gray-800">
       <ToastContainer toasts={toasts} onRemove={removeToast} />
       
-      {/* Mobile Header - Only visible on mobile */}
-      <MobileHeader
-        onMenuClick={() => setIsMobileMenuOpen(true)}
-        onNotificationClick={() => setShowNotifications(true)}
-        onCreateEvent={() => {
-          if (isLoggedIn) {
-            setEditingEvent(null);
-            setIsModalOpen(true);
-          } else {
-            setPendingEventModal(true);
-            setIsLoginModalOpen(true);
-          }
-        }}
-        notificationCount={notifications.filter(n => !n.read).length}
-        title={view === "calendar" ? "Takvim" : "Etkinlikler"}
-        isLoggedIn={isLoggedIn}
-      />
-      
-      {/* Mobile Drawer */}
-      <MobileDrawer
-        isOpen={isMobileMenuOpen}
-        onClose={() => setIsMobileMenuOpen(false)}
-        view={view}
-        onViewChange={setView}
-        isLoggedIn={isLoggedIn}
-        isAdmin={isAdmin}
-        username={(() => {
-          const userStr = localStorage.getItem("lsv_cafe_user");
-          if (userStr) {
-            const user = JSON.parse(userStr);
-            return user.username;
-          }
-          return undefined;
-        })()}
-        onLogin={() => setIsLoginModalOpen(true)}
-        onLogout={() => {
-          api.logout();
-          setIsLoggedIn(false);
-          setIsAdmin(false);
-          addToast("info", "Çıkış yapıldı.");
-        }}
-        onAdminPanel={isAdmin ? () => setIsAdminPanelOpen(true) : undefined}
-      />
       {/* Sidebar Navigation */}
-      <aside className="hidden lg:flex w-full md:w-64 bg-slate-900 text-white flex-shrink-0 flex flex-col">
+      <aside className="w-full md:w-64 bg-slate-900 text-white flex-shrink-0 flex flex-col">
         <div className="p-6">
           <h1 className="text-2xl font-bold tracking-tight">LSV Cafe</h1>
           <p className="text-slate-400 text-sm">Etkinlik Yönetim Sistemi</p>
@@ -768,7 +683,7 @@ const App: React.FC = () => {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col h-screen overflow-hidden pb-16 lg:pb-0">
+      <main className="flex-1 flex flex-col h-screen overflow-hidden">
         
         {/* Top Header */}
         <header className="bg-white border-b border-gray-200 px-8 py-4 flex flex-col md:flex-row items-start md:items-center justify-between shadow-sm z-10 gap-4">
@@ -914,18 +829,9 @@ const App: React.FC = () => {
                                 {filteredEvents.filter(e => {
                                     const d = new Date(e.startDate);
                                     const now = new Date();
-                                    const startOfWeek = new Date(now);
-                                    const endOfWeek = new Date(now);
-                                    
-                                    // Pazartesi (haftanın başı)
-                                    startOfWeek.setDate(now.getDate() - now.getDay() + 1);
-                                    startOfWeek.setHours(0, 0, 0, 0);
-                                    
-                                    // Pazar (haftanın sonu)
-                                    endOfWeek.setDate(now.getDate() - now.getDay() + 7);
-                                    endOfWeek.setHours(23, 59, 59, 999);
-                                    
-                                    return d >= startOfWeek && d <= endOfWeek;
+                                    const nextWeek = new Date();
+                                    nextWeek.setDate(now.getDate() + 7);
+                                    return d >= now && d <= nextWeek;
                                 }).length}
                             </h4>
                         </div>
@@ -1083,7 +989,7 @@ const App: React.FC = () => {
                                             value={ev.status}
                                             onChange={(e) => handleStatusChange(ev.id, e.target.value as EventStatus)}
                                             disabled={!isAdmin}
-                                            className={`text-xs font-medium px-3 py-1.5 rounded-full border outline-none ${
+                                            className={`text-xs font-medium px-2 py-1 rounded-full border outline-none ${
                                                 !isAdmin ? 'opacity-80 cursor-not-allowed' : 'cursor-pointer'
                                             } ${
                                                 ev.status === EventStatus.APPROVED ? 'bg-green-100 text-green-700 border-green-200' :
@@ -1092,11 +998,7 @@ const App: React.FC = () => {
                                                 'bg-gray-100 text-gray-700 border-gray-200'
                                             }`}
                                         >
-                                            {Object.values(EventStatus).map(s => (
-                                                <option key={s} value={s}>
-                                                    {EventStatusLabels[s as EventStatus]}
-                                                </option>
-                                            ))}
+                                            {Object.values(EventStatus).map(s => <option key={s} value={s}>{s}</option>)}
                                         </select>
                                     </td>
                                     <td className="p-4 text-right">
@@ -1183,23 +1085,6 @@ const App: React.FC = () => {
       <AdminPanel 
         isOpen={isAdminPanelOpen} 
         onClose={() => setIsAdminPanelOpen(false)} 
-      />
-      
-      {/* Bottom Navigation - Mobile only */}
-      <BottomNav
-        view={view}
-        onViewChange={setView}
-        onCreateEvent={() => {
-          if (isLoggedIn) {
-            setEditingEvent(null);
-            setIsModalOpen(true);
-          } else {
-            setPendingEventModal(true);
-            setIsLoginModalOpen(true);
-          }
-        }}
-        onProfileClick={() => setIsMobileMenuOpen(true)}
-        isLoggedIn={isLoggedIn}
       />
     </div>
   );

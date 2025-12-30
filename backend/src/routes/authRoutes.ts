@@ -1,12 +1,13 @@
 import { Router } from 'express';
 import prisma from '../lib/prisma';
+import { authLimiter } from '../middleware/rateLimiter';
 import * as bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
 const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_key';
 
-router.post('/login', async (req, res) => {
+router.post('/login', authLimiter, async (req, res) => {
   console.log('LOGIN ATTEMPT DEBUG:', req.body);
   const { password } = req.body;
   // KULLANICI ADI YOKSA 'admin' KABUL ET
