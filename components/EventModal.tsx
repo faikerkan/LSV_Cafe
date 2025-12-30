@@ -49,10 +49,11 @@ export const EventModal: React.FC<EventModalProps> = ({
   existingEvent,
   existingEvents,
   isAdmin = false,
-  departments,
-  resources,
-  locations,
-  configLoading
+  departments = [],
+  resources = [],
+  locations = [],
+  configLoading = false,
+  isLoggedIn = false
 }) => {
   // Conflict Handling
   const [conflictingEvents, setConflictingEvents] = useState<ConflictDetail[]>([]);
@@ -102,13 +103,14 @@ export const EventModal: React.FC<EventModalProps> = ({
 
   useEffect(() => {
     if (isOpen) {
-      if (existingEvent) {
+      try {
+        if (existingEvent) {
         setTitle(existingEvent.title);
         
         // Departman - UUID'den çalış, yoksa eski string'i map et (geriye dönük uyumluluk)
         if (existingEvent.departmentId) {
           setDepartmentId(existingEvent.departmentId);
-        } else if (existingEvent.department && departments.length > 0) {
+        } else if (existingEvent.department && Array.isArray(departments) && departments.length > 0) {
           // Eski string department name'i UUID'ye map et
           const dept = departments.find(d => d.name === existingEvent.department);
           setDepartmentId(dept?.id || '');
@@ -119,7 +121,7 @@ export const EventModal: React.FC<EventModalProps> = ({
         // Lokasyon - UUID'den çalış, yoksa eski string'i map et
         if (existingEvent.locationId) {
           setLocationId(existingEvent.locationId);
-        } else if (existingEvent.location && locations.length > 0) {
+        } else if (existingEvent.location && Array.isArray(locations) && locations.length > 0) {
           const loc = locations.find(l => l.name === existingEvent.location);
           setLocationId(loc?.id || '');
         } else {
@@ -129,7 +131,7 @@ export const EventModal: React.FC<EventModalProps> = ({
         // Kaynaklar - UUID'lerden çalış, yoksa eski string'leri map et
         if (existingEvent.resourceIds) {
           setSelectedResourceIds(existingEvent.resourceIds);
-        } else if (existingEvent.resources && resources.length > 0) {
+        } else if (existingEvent.resources && Array.isArray(resources) && resources.length > 0) {
           // String name'lerden UUID'lere map et
           const ids = existingEvent.resources
             .map(name => resources.find(r => r.name === name)?.id)
@@ -154,6 +156,10 @@ export const EventModal: React.FC<EventModalProps> = ({
         resetForm();
       }
       setShowConflictView(false);
+      } catch (error) {
+        console.error('Error loading existing event:', error);
+        resetForm();
+      }
     }
   }, [isOpen, initialDate, existingEvent, departments, resources, locations]);
 
@@ -177,6 +183,11 @@ export const EventModal: React.FC<EventModalProps> = ({
   const realTimeConflicts = useMemo(() => {
     const conflicts = new Map<string, { hasConflict: boolean; reasons: string[] }>();
     
+    // Config listeleri yüklenmemişse boş döndür
+    if (!Array.isArray(locations) || !Array.isArray(resources)) {
+      return conflicts;
+    }
+    
     if (!startTime || !endTime || !startDate) return conflicts;
     
     const nStart = new Date(`${startDate}T${startTime}`);
@@ -191,7 +202,7 @@ export const EventModal: React.FC<EventModalProps> = ({
       
       if (hasTimeOverlap) {
         // Mekan çakışması kontrolü
-        if (locationId && event.locationId === locationId) {
+        if (locationId && event.locationId === locationId && locations.length > 0) {
           const locName = locations.find(l => l.id === locationId)?.name;
           reasons.push(`Mekan: ${locName}`);
         }
@@ -266,11 +277,13 @@ export const EventModal: React.FC<EventModalProps> = ({
         resourceIds: selectedResourceIds,
         
         // Display için deprecated alanlar (backend response'dan güncellenecek)
-        department: departments.find(d => d.id === departmentId)?.name,
-        location: locations.find(l => l.id === locationId)?.name,
-        resources: selectedResourceIds.map(id => 
-          resources.find(r => r.id === id)?.name || ''
-        ).filter(Boolean),
+        department: Array.isArray(departments) && departments.length > 0 ? departments.find(d => d?.id === departmentId)?.name : undefined,
+        location: Array.isArray(locations) && locations.length > 0 ? locations.find(l => l?.id === locationId)?.name : undefined,
+        resources: Array.isArray(resources) && resources.length > 0
+        ? selectedResourceIds
+            .map(id => resources.find(r => r?.id === id)?.name)
+            .filter(Boolean)
+        : [],
         
         description: description.trim(),
         startDate: startDateTime.toISOString(),
@@ -312,14 +325,16 @@ export const EventModal: React.FC<EventModalProps> = ({
 
               // 1. Check Location Conflict (UUID bazlı)
               if (e.locationId && newEvent.locationId && e.locationId === newEvent.locationId) {
-                  const locName = locations.find(l => l.id === newEvent.locationId)?.name || 'Bilinmeyen';
+                  const locName = Array.isArray(locations) && locations.length > 0
+                    ? locations.find(l => l?.id === newEvent.locationId)?.name || 'Bilinmeyen'
+                    : 'Bilinmeyen';
                   reasons.push(`Mekan Dolu: ${locName}`);
               }
 
               // 2. Check Resource Conflict (UUID bazlı - Sadece Exclusive kaynaklar)
-              if (newEvent.resourceIds && e.resourceIds) {
+              if (newEvent.resourceIds && e.resourceIds && Array.isArray(resources) && resources.length > 0) {
                 const conflictingResourceIds = newEvent.resourceIds.filter(rId => {
-                  const resource = resources.find(r => r.id === rId);
+                  const resource = resources.find(r => r?.id === rId);
                   return resource?.exclusive && e.resourceIds?.includes(rId);
                 });
                 
