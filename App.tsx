@@ -1110,12 +1110,22 @@ const App: React.FC = () => {
                                                     <FileText size={18} />
                                                 </button>
                                             )}
-                                            <button 
-                                                onClick={() => { setEditingEvent(ev); setIsModalOpen(true); }}
-                                                className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
-                                            >
-                                                {isAdmin ? 'Düzenle' : 'Görüntüle/Düzenle'}
-                                            </button>
+                                            {isLoggedIn ? (
+                                                <button 
+                                                    onClick={() => { setEditingEvent(ev); setIsModalOpen(true); }}
+                                                    className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
+                                                >
+                                                    {isAdmin ? 'Düzenle' : 'Düzenle'}
+                                                </button>
+                                            ) : (
+                                                <button 
+                                                    onClick={() => { setEditingEvent(ev); setIsModalOpen(true); }}
+                                                    className="text-gray-500 hover:text-gray-700 text-sm font-medium opacity-60"
+                                                    title="Görüntüleme modu - Değişiklik yapmak için giriş yapın"
+                                                >
+                                                    Görüntüle
+                                                </button>
+                                            )}
                                             {isAdmin && (
                                                 <button 
                                                     onClick={() => handleDeleteEvent(ev.id)}

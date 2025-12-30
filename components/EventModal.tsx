@@ -391,6 +391,16 @@ export const EventModal: React.FC<EventModalProps> = ({
             <X size={24} />
           </button>
         </div>
+                {!isLoggedIn && (
+                    <div className="bg-yellow-50 border-l-4 border-yellow-400 p-3 mx-6 mt-4">
+                        <div className="flex items-center gap-2">
+                            <Info size={16} className="text-yellow-600" />
+                            <p className="text-sm text-yellow-800">
+                                <strong>Görüntüleme Modu:</strong> Değişiklik yapmak için lütfen giriş yapın.
+                            </p>
+                        </div>
+                    </div>
+                )}
 
         {/* CONFLICT VIEW OVERLAY */}
         {showConflictView && pendingEvent ? (
@@ -796,12 +806,18 @@ export const EventModal: React.FC<EventModalProps> = ({
                         >
                         İptal
                         </button>
-                        <button 
+                        {isLoggedIn ? (
+                    <button 
                         type="submit"
                         className="px-6 py-2 bg-slate-900 text-white rounded hover:bg-slate-800 transition shadow-lg"
                         >
                         {existingEvent ? (isAdmin ? 'Güncelle' : 'Talep Güncelle') : 'Talep Oluştur'}
                         </button>
+                ) : (
+                    <button type="button" onClick={onClose} className="w-full bg-gray-400 hover:bg-gray-500 text-white font-medium py-2 px-4 rounded transition">
+                        Kapat
+                    </button>
+                )}
                     </div>
                 </div>
                 </form>
