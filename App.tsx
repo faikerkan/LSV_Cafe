@@ -155,12 +155,16 @@ const App: React.FC = () => {
         api.getResources(),
         api.getLocations()
       ]);
-      setDepartments(depts.filter(d => d.active));
-      setResources(res.filter(r => r.active));
-      setLocations(locs.filter(l => l.active));
+      setDepartments(Array.isArray(depts) ? depts.filter(d => d?.active) : []);
+      setResources(Array.isArray(res) ? res.filter(r => r?.active) : []);
+      setLocations(Array.isArray(locs) ? locs.filter(l => l?.active) : []);
     } catch (error) {
       console.error('Config fetch error:', error);
       addToast('error', 'Ayarlar yüklenemedi.');
+      // Hata durumunda boş array'ler set et
+      setDepartments([]);
+      setResources([]);
+      setLocations([]);
     } finally {
       setConfigLoading(false);
     }

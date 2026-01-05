@@ -72,7 +72,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin
               required
             />
           </div>
-
+          
           <div className="mb-4">
             <label className="block text-sm font-semibold text-gray-700 mb-1">Şifre</label>
             <input 
