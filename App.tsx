@@ -1191,6 +1191,7 @@ const App: React.FC = () => {
         resources={resources}
         locations={locations}
         configLoading={configLoading}
+        isLoggedIn={isLoggedIn}
       />
 
       {/* Admin Panel */}
