@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import prisma from '../lib/prisma';
+import logger from '../lib/logger';
 import { authenticate, requireAdmin, optionalAuth, AuthRequest } from '../middleware/auth';
 
 const router = Router();
@@ -9,9 +10,11 @@ async function createEventLog(
   eventId: string,
   action: string,
   actorId: string | null,
-  payload?: any
+  payload?: any,
+  tx?: any // Transaction client (Prisma transaction)
 ) {
-  await prisma.eventLog.create({
+  const prismaClient = tx || prisma;
+  await prismaClient.eventLog.create({
     data: {
       eventId,
       action,
@@ -26,12 +29,14 @@ async function checkResourceConflicts(
   resourceIds: string[],
   startDate: Date,
   endDate: Date,
-  excludeEventId?: string
+  excludeEventId?: string,
+  tx?: any // Transaction client (Prisma transaction)
 ) {
+  const prismaClient = tx || prisma;
   if (!resourceIds.length) return [];
 
   // Get exclusive resources
-  const exclusiveResources = await prisma.resource.findMany({
+  const exclusiveResources = await prismaClient.resource.findMany({
     where: {
       id: { in: resourceIds },
       exclusive: true
@@ -75,11 +80,13 @@ async function checkLocationConflicts(
   locationId: string | null,
   startDate: Date,
   endDate: Date,
-  excludeEventId?: string
+  excludeEventId?: string,
+  tx?: any // Transaction client (Prisma transaction)
 ) {
   if (!locationId) return [];
 
-  const conflicts = await prisma.event.findMany({
+  const prismaClient = tx || prisma;
+  const conflicts = await prismaClient.event.findMany({
     where: {
       id: excludeEventId ? { not: excludeEventId } : undefined,
       locationId,
@@ -100,22 +107,57 @@ async function checkLocationConflicts(
 // GET /api/events - List all events (optional auth for filtering)
 router.get('/', optionalAuth, async (req: AuthRequest, res) => {
   try {
-    const events = await prisma.event.findMany({
-      include: {
-        department: true,
-        location: true,
-        eventResources: {
-          include: { resource: true }
+    // Pagination parameters
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 50));
+    const skip = (page - 1) * limit;
+
+    // Build where clause for filtering
+    const where: any = {};
+    
+    // Status filter (if authenticated and admin, show all; otherwise show only approved/pending)
+    if (req.user?.role === 'ADMIN') {
+      if (req.query.status) {
+        where.status = req.query.status;
+      }
+    } else {
+      where.status = { in: ['APPROVED', 'COMPLETED'] };
+    }
+
+    // Date range filter
+    if (req.query.startDate || req.query.endDate) {
+      where.AND = [];
+      if (req.query.startDate) {
+        where.AND.push({ startDate: { gte: new Date(req.query.startDate as string) } });
+      }
+      if (req.query.endDate) {
+        where.AND.push({ endDate: { lte: new Date(req.query.endDate as string) } });
+      }
+    }
+
+    // Get events with pagination
+    const [events, total] = await Promise.all([
+      prisma.event.findMany({
+        where,
+        skip,
+        take: limit,
+        include: {
+          department: true,
+          location: true,
+          eventResources: {
+            include: { resource: true }
+          },
+          createdBy: {
+            select: { id: true, username: true }
+          },
+          updatedBy: {
+            select: { id: true, username: true }
+          }
         },
-        createdBy: {
-          select: { id: true, username: true }
-        },
-        updatedBy: {
-          select: { id: true, username: true }
-        }
-      },
-      orderBy: { startDate: 'asc' }
-    });
+        orderBy: { startDate: 'asc' }
+      }),
+      prisma.event.count({ where })
+    ]);
 
     // Transform for frontend compatibility
     const transformed = events.map(event => ({
@@ -142,9 +184,20 @@ router.get('/', optionalAuth, async (req: AuthRequest, res) => {
       updatedAt: event.updatedAt
     }));
 
-    res.json(transformed);
+    // Return paginated response
+    res.json({
+      data: transformed,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+        hasNext: skip + limit < total,
+        hasPrev: page > 1,
+      }
+    });
   } catch (error) {
-    console.error('List events error:', error);
+    logger.error('List events error:', { error, stack: error instanceof Error ? error.stack : undefined });
     res.status(500).json({ error: 'Etkinlikler getirilemedi.' });
   }
 });
@@ -176,80 +229,98 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
       return res.status(400).json({ error: 'Bitiş tarihi başlangıç tarihinden sonra olmalı.' });
     }
 
-    // Check conflicts
-    const locationConflicts = await checkLocationConflicts(locationId, startDate, endDate);
-    const resourceConflicts = resourceIds?.length 
-      ? await checkResourceConflicts(resourceIds, startDate, endDate)
-      : [];
+    // Use transaction with Serializable isolation to prevent race conditions
+    const event = await prisma.$transaction(async (tx) => {
+      // Check conflicts within transaction (prevents race conditions)
+      const locationConflicts = await checkLocationConflicts(locationId, startDate, endDate, undefined, tx);
+      const resourceConflicts = resourceIds?.length 
+        ? await checkResourceConflicts(resourceIds, startDate, endDate, undefined, tx)
+        : [];
 
-    if (locationConflicts.length > 0) {
-      return res.status(409).json({
-        message: `Mekan dolu: ${locationConflicts[0].location?.name}`,
-        conflict: true,
-        conflicts: locationConflicts.map(c => ({
-          id: c.id,
-          title: c.title,
-          startDate: c.startDate,
-          endDate: c.endDate
-        }))
-      });
-    }
-
-    if (resourceConflicts.length > 0) {
-      const resourceNames = resourceConflicts[0].conflictingResources.join(', ');
-      return res.status(409).json({
-        message: `Ekipman kullanımda: ${resourceNames}`,
-        conflict: true,
-        conflicts: resourceConflicts.map(c => ({
-          id: c.event.id,
-          title: c.event.title,
-          resources: c.conflictingResources
-        }))
-      });
-    }
-
-    // Create event
-    const event = await prisma.event.create({
-      data: {
-        title,
-        departmentId: departmentId || null,
-        description: description || '',
-        startDate,
-        endDate,
-        status: 'PENDING', // User-created events start as pending
-        locationId: locationId || null,
-        attendees: parseInt(attendees) || 0,
-        contactPerson: contactPerson || '',
-        requirements: requirements || null,
-        createdById: req.user?.userId || null,
-        eventResources: resourceIds?.length ? {
-          create: resourceIds.map((rid: string) => ({
-            resourceId: rid,
-            quantity: 1
+      if (locationConflicts.length > 0) {
+        throw {
+          status: 409,
+          message: `Mekan dolu: ${locationConflicts[0].location?.name}`,
+          conflict: true,
+          conflicts: locationConflicts.map(c => ({
+            id: c.id,
+            title: c.title,
+            startDate: c.startDate,
+            endDate: c.endDate
           }))
-        } : undefined
-      },
-      include: {
-        department: true,
-        location: true,
-        eventResources: {
-          include: { resource: true }
-        }
+        };
       }
-    });
 
-    // Log creation
-    await createEventLog(event.id, 'create', req.user?.userId || null, {
-      title: event.title,
-      department: event.department?.name,
-      location: event.location?.name,
-      startDate: event.startDate,
-      endDate: event.endDate
+      if (resourceConflicts.length > 0) {
+        const resourceNames = resourceConflicts[0].conflictingResources.join(', ');
+        throw {
+          status: 409,
+          message: `Ekipman kullanımda: ${resourceNames}`,
+          conflict: true,
+          conflicts: resourceConflicts.map(c => ({
+            id: c.event.id,
+            title: c.event.title,
+            resources: c.conflictingResources
+          }))
+        };
+      }
+
+      // Create event within transaction
+      const newEvent = await tx.event.create({
+        data: {
+          title,
+          departmentId: departmentId || null,
+          description: description || '',
+          startDate,
+          endDate,
+          status: 'PENDING', // User-created events start as pending
+          locationId: locationId || null,
+          attendees: parseInt(attendees) || 0,
+          contactPerson: contactPerson || '',
+          requirements: requirements || null,
+          createdById: req.user?.userId || null,
+          eventResources: resourceIds?.length ? {
+            create: resourceIds.map((rid: string) => ({
+              resourceId: rid,
+              quantity: 1
+            }))
+          } : undefined
+        },
+        include: {
+          department: true,
+          location: true,
+          eventResources: {
+            include: { resource: true }
+          }
+        }
+      });
+
+      // Log creation within transaction
+      await createEventLog(newEvent.id, 'create', req.user?.userId || null, {
+        title: newEvent.title,
+        department: newEvent.department?.name,
+        location: newEvent.location?.name,
+        startDate: newEvent.startDate,
+        endDate: newEvent.endDate
+      }, tx);
+
+      return newEvent;
+    }, {
+      isolationLevel: 'Serializable', // Highest isolation level to prevent race conditions
+      timeout: 10000 // 10 second timeout
     });
 
     res.status(201).json(event);
-  } catch (error) {
-    console.error('Create event error:', error);
+  } catch (error: any) {
+    // Handle transaction errors (conflicts)
+    if (error.status === 409) {
+      return res.status(409).json({
+        message: error.message,
+        conflict: error.conflict,
+        conflicts: error.conflicts
+      });
+    }
+    logger.error('Create event error:', { error, stack: error instanceof Error ? error.stack : undefined });
     res.status(500).json({ error: 'Etkinlik oluşturulamadı.' });
   }
 });

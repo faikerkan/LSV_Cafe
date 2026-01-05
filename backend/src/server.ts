@@ -7,12 +7,14 @@ import authRoutes from './routes/authRoutes';
 import eventRoutes from './routes/eventRoutes';
 import userRoutes from './routes/userRoutes';
 import configRoutes from './routes/configRoutes';
+import logger from './lib/logger';
+import { env } from './config/env';
 
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-const NODE_ENV = process.env.NODE_ENV || 'development';
+const PORT = env.PORT;
+const NODE_ENV = env.NODE_ENV;
 
 // Security middleware
 app.use(helmet());
@@ -52,6 +54,22 @@ app.get('/', (req, res) => {
   });
 });
 
+// Error handling middleware (must be last)
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  logger.error('Unhandled error:', {
+    error: err.message,
+    stack: err.stack,
+    path: req.path,
+    method: req.method,
+  });
+  
+  res.status(err.status || 500).json({
+    error: NODE_ENV === 'production' 
+      ? 'Sunucu hatası oluştu.' 
+      : err.message,
+  });
+});
+
 app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT} (${NODE_ENV})`);
+  logger.info(`Server is running on port ${PORT} (${NODE_ENV})`);
 });
