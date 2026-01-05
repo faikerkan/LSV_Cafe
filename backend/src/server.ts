@@ -7,10 +7,30 @@ import authRoutes from './routes/authRoutes';
 import eventRoutes from './routes/eventRoutes';
 import userRoutes from './routes/userRoutes';
 import configRoutes from './routes/configRoutes';
-import logger from './lib/logger';
-import { env } from './config/env';
-
 dotenv.config();
+
+// Import logger and env with error handling
+let logger: any;
+let env: any;
+
+try {
+  logger = require('./lib/logger').default;
+  env = require('./config/env').env;
+} catch (error) {
+  console.error('Failed to load logger or env config:', error);
+  // Fallback logger
+  logger = {
+    info: (...args: any[]) => console.log(...args),
+    error: (...args: any[]) => console.error(...args),
+    warn: (...args: any[]) => console.warn(...args),
+    debug: (...args: any[]) => console.log(...args),
+  };
+  // Fallback env
+  env = {
+    PORT: process.env.PORT || 3000,
+    NODE_ENV: process.env.NODE_ENV || 'production',
+  };
+}
 
 const app = express();
 const PORT = env.PORT;

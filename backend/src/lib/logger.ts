@@ -26,8 +26,8 @@ const logger = winston.createLogger({
   ],
 });
 
-// If we're not in production, log to console as well
-if (process.env.NODE_ENV !== 'production') {
+// In development, add colored console output
+if (process.env.NODE_ENV === 'development') {
   logger.add(new winston.transports.Console({
     format: winston.format.combine(
       winston.format.colorize(),
@@ -36,10 +36,17 @@ if (process.env.NODE_ENV !== 'production') {
   }));
 }
 
-// Create logs directory if it doesn't exist
+// Create logs directory if it doesn't exist (only if not in production or if directory writable)
 import { existsSync, mkdirSync } from 'fs';
-if (!existsSync('logs')) {
-  mkdirSync('logs');
+import { accessSync, constants } from 'fs';
+
+try {
+  if (!existsSync('logs')) {
+    mkdirSync('logs', { recursive: true });
+  }
+} catch (error) {
+  // If we can't create logs directory, just log to console
+  console.warn('Could not create logs directory, logging to console only');
 }
 
 export default logger;
