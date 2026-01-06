@@ -53,8 +53,16 @@ export const EventModal: React.FC<EventModalProps> = ({
   resources = [],
   locations = [],
   configLoading = false,
-  isLoggedIn = false
+  isLoggedIn: propIsLoggedIn = false
 }) => {
+  // Double-check localStorage in case prop is not updated
+  const [isLoggedIn, setIsLoggedIn] = React.useState(propIsLoggedIn);
+  
+  React.useEffect(() => {
+    const token = localStorage.getItem('lsv_cafe_token');
+    const hasToken = !!token;
+    setIsLoggedIn(hasToken || propIsLoggedIn);
+  }, [propIsLoggedIn, isOpen]);
   // Conflict Handling
   const [conflictingEvents, setConflictingEvents] = useState<ConflictDetail[]>([]);
   const [showConflictView, setShowConflictView] = useState(false);
