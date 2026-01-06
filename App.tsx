@@ -111,6 +111,38 @@ const App: React.FC = () => {
 
   const [pendingEventModal, setPendingEventModal] = useState(false);
 
+  // Sync isLoggedIn state with localStorage periodically (in case token was set in another tab)
+  useEffect(() => {
+    const checkAuth = () => {
+      const token = localStorage.getItem('lsv_cafe_token');
+      const hasToken = !!token;
+      if (hasToken !== isLoggedIn) {
+        setIsLoggedIn(hasToken);
+        if (hasToken) {
+          try {
+            const userStr = localStorage.getItem('lsv_cafe_user');
+            if (userStr) {
+              const user = JSON.parse(userStr);
+              setIsAdmin(user.role === 'admin' || user.role === 'ADMIN');
+            }
+          } catch (e) {
+            // Ignore
+          }
+        } else {
+          setIsAdmin(false);
+        }
+      }
+    };
+
+    // Check immediately
+    checkAuth();
+    
+    // Check periodically (every 2 seconds)
+    const interval = setInterval(checkAuth, 2000);
+    
+    return () => clearInterval(interval);
+  }, [isLoggedIn]);
+
   // Filter & Search State
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [editingEvent, setEditingEvent] = useState<CafeEvent | null>(null);
