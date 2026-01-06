@@ -34,6 +34,7 @@ import { useEvents, useCreateEvent, useUpdateEvent, useDeleteEvent, useApproveEv
 import { useConfig } from './hooks/useConfig';
 import { EventListSkeleton } from './components/EventCardSkeleton';
 import { MobileHeader, MobileDrawer, BottomNav } from './components/mobile';
+import * as XLSX from 'xlsx';
 
 // Department Colors Constant
 const DEPT_COLORS: Record<string, string> = {
@@ -626,39 +627,79 @@ const App: React.FC = () => {
     printWindow.document.close();
   };
 
-  const handleExportCSV = () => {
-    const headers = ['Baslik', 'Departman', 'Baslangic', 'Bitis', 'Mekan', 'Durum', 'Ilgili Kisi', 'Beklenen Kisi', 'Gerceklesen Kisi', 'Notlar', 'Kaynaklar', 'Aciklama'];
-    
-    const csvContent = [
-      headers.join(','),
-      ...filteredEvents.map(e => {
-        const escape = (str: string) => `"${(str || '').replace(/"/g, '""')}"`;
-        return [
-          escape(e.title),
-          escape(e.department),
-          escape(new Date(e.startDate).toLocaleString('tr-TR')),
-          escape(new Date(e.endDate).toLocaleString('tr-TR')),
-          escape(e.location),
-          escape(e.status),
-          escape(e.contactPerson),
-          e.attendees,
-          e.actualAttendees || '',
-          escape(e.outcomeNotes || ''),
-          escape(e.resources ? e.resources.join(', ') : ''),
-          escape(e.description)
-        ].join(',');
-      })
-    ].join('\n');
+  const handleExportExcel = () => {
+    // Etkinlik detayları
+    const eventsSheet = XLSX.utils.json_to_sheet(filteredEvents.map((e) => ({
+      Baslik: e.title,
+      Departman: e.department || '',
+      DepartmanId: e.departmentId || '',
+      Durum: e.status,
+      Baslangic: new Date(e.startDate).toLocaleString('tr-TR'),
+      Bitis: new Date(e.endDate).toLocaleString('tr-TR'),
+      Sure_Saat: ((new Date(e.endDate).getTime() - new Date(e.startDate).getTime()) / 3600000).toFixed(2),
+      Mekan: e.location || '',
+      MekanId: e.locationId || '',
+      IlgiliKisi: e.contactPerson || '',
+      BeklenenKisi: e.attendees ?? '',
+      GerceklesenKisi: e.actualAttendees ?? '',
+      Gereksinimler: e.requirements || '',
+      SonucNotu: e.outcomeNotes || '',
+      Kaynaklar: (e.resources || []).join(', '),
+      KaynakIds: (e.resourceIds || []).join(', '),
+      Aciklama: e.description || '',
+      Olusturan: e.createdBy?.username || '',
+      Guncelleyen: e.updatedBy?.username || '',
+      Olusturulma: e.createdAt ? new Date(e.createdAt).toLocaleString('tr-TR') : '',
+      Guncellenme: e.updatedAt ? new Date(e.updatedAt).toLocaleString('tr-TR') : ''
+    })));
 
-    const blob = new Blob([`\uFEFF${csvContent}`], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `etkinlik_listesi_${new Date().toISOString().slice(0,10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    addToast('info', 'CSV dosyası indirildi.');
+    // Durum özeti
+    const statusMap: Record<string, number> = {};
+    filteredEvents.forEach(e => { statusMap[e.status] = (statusMap[e.status] || 0) + 1; });
+    const statusSheet = XLSX.utils.json_to_sheet(Object.entries(statusMap).map(([status, count]) => ({
+      Durum: status,
+      Adet: count
+    })));
+
+    // Departman özeti
+    const deptMap: Record<string, number> = {};
+    filteredEvents.forEach(e => { const d = e.department || 'Bilinmiyor'; deptMap[d] = (deptMap[d] || 0) + 1; });
+    const deptSheet = XLSX.utils.json_to_sheet(Object.entries(deptMap).map(([dept, count]) => ({
+      Departman: dept,
+      Adet: count
+    })));
+
+    // Kaynak kullanımı
+    const resourceMap: Record<string, number> = {};
+    filteredEvents.forEach(e => {
+      (e.resources || []).forEach(r => { resourceMap[r] = (resourceMap[r] || 0) + 1; });
+    });
+    const resourceSheet = XLSX.utils.json_to_sheet(Object.entries(resourceMap).map(([res, count]) => ({
+      Kaynak: res,
+      Kullanim: count
+    })));
+
+    // Lokasyon kullanımı
+    const locationMap: Record<string, number> = {};
+    filteredEvents.forEach(e => {
+      const loc = e.location || 'Bilinmiyor';
+      locationMap[loc] = (locationMap[loc] || 0) + 1;
+    });
+    const locationSheet = XLSX.utils.json_to_sheet(Object.entries(locationMap).map(([loc, count]) => ({
+      Lokasyon: loc,
+      Kullanim: count
+    })));
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, eventsSheet, 'Etkinlikler');
+    XLSX.utils.book_append_sheet(wb, statusSheet, 'Durum Ozeti');
+    XLSX.utils.book_append_sheet(wb, deptSheet, 'Departman Ozeti');
+    XLSX.utils.book_append_sheet(wb, resourceSheet, 'Kaynak Kullanim');
+    XLSX.utils.book_append_sheet(wb, locationSheet, 'Lokasyon Kullanim');
+
+    const filename = `lsv_cafe_rapor_${new Date().toISOString().split('T')[0]}.xlsx`;
+    XLSX.writeFile(wb, filename);
+    addToast('info', 'Excel raporu indirildi.');
   };
 
   return (
@@ -908,9 +949,9 @@ const App: React.FC = () => {
 
              {isAdmin && (
                 <button 
-                    onClick={handleExportCSV}
+                    onClick={handleExportExcel}
                     className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition"
-                    title="Listeyi Excel/CSV olarak indir"
+                    title="Excel raporu indir"
                 >
                     <Download size={16} />
                     <span className="hidden lg:inline">Dışa Aktar</span>
