@@ -55,21 +55,15 @@ export const EventModal: React.FC<EventModalProps> = ({
   configLoading = false,
   isLoggedIn: propIsLoggedIn = false
 }) => {
-  // Double-check localStorage in case prop is not updated - prioritize localStorage
-  const [isLoggedInState, setIsLoggedInState] = React.useState(() => {
-    const token = localStorage.getItem('lsv_cafe_token');
-    return !!token || propIsLoggedIn;
-  });
-  
-  React.useEffect(() => {
-    // Always check localStorage when modal opens or prop changes
-    const token = localStorage.getItem('lsv_cafe_token');
-    const hasToken = !!token;
-    setIsLoggedInState(hasToken || propIsLoggedIn);
-  }, [propIsLoggedIn, isOpen]);
-  
-  // Use local state instead of prop
-  const isLoggedIn = isLoggedInState;
+  // Tek kontrol: localStorage token + prop birleşik. Her render'da okunur.
+  const isLoggedIn = (() => {
+    try {
+      const token = localStorage.getItem('lsv_cafe_token');
+      return !!token || propIsLoggedIn;
+    } catch {
+      return propIsLoggedIn;
+    }
+  })();
   // Conflict Handling
   const [conflictingEvents, setConflictingEvents] = useState<ConflictDetail[]>([]);
   const [showConflictView, setShowConflictView] = useState(false);

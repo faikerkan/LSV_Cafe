@@ -89,11 +89,8 @@ const App: React.FC = () => {
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
   
-  // Auth State - Check localStorage on mount
-  const [isLoggedIn, setIsLoggedIn] = useState(() => {
-    const token = localStorage.getItem('lsv_cafe_token');
-    return !!token;
-  });
+  // Auth State - localStorage kontrolü
+  const [isLoggedIn, setIsLoggedIn] = useState(() => !!localStorage.getItem('lsv_cafe_token'));
 
   const [isAdmin, setIsAdmin] = useState(() => {
     try {
@@ -111,37 +108,42 @@ const App: React.FC = () => {
 
   const [pendingEventModal, setPendingEventModal] = useState(false);
 
-  // Sync isLoggedIn state with localStorage periodically (in case token was set in another tab)
+  // Token değişimini dinle (focus + interval)
   useEffect(() => {
     const checkAuth = () => {
       const token = localStorage.getItem('lsv_cafe_token');
       const hasToken = !!token;
       if (hasToken !== isLoggedIn) {
         setIsLoggedIn(hasToken);
-        if (hasToken) {
-          try {
-            const userStr = localStorage.getItem('lsv_cafe_user');
-            if (userStr) {
-              const user = JSON.parse(userStr);
-              setIsAdmin(user.role === 'admin' || user.role === 'ADMIN');
-            }
-          } catch (e) {
-            // Ignore
+      }
+
+      if (hasToken) {
+        try {
+          const userStr = localStorage.getItem('lsv_cafe_user');
+          if (userStr) {
+            const user = JSON.parse(userStr);
+            setIsAdmin(user.role === 'admin' || user.role === 'ADMIN');
           }
-        } else {
-          setIsAdmin(false);
+        } catch (e) {
+          // Ignore
         }
+      } else if (isAdmin) {
+        setIsAdmin(false);
       }
     };
 
-    // Check immediately
+    // İlk kontrol
     checkAuth();
-    
-    // Check periodically (every 2 seconds)
+    // Sekme odaklanınca kontrol et
+    window.addEventListener('focus', checkAuth);
+    // Her 2 saniyede bir kontrol
     const interval = setInterval(checkAuth, 2000);
-    
-    return () => clearInterval(interval);
-  }, [isLoggedIn]);
+
+    return () => {
+      window.removeEventListener('focus', checkAuth);
+      clearInterval(interval);
+    };
+  }, [isLoggedIn, isAdmin]);
 
   // Filter & Search State
   const [selectedDate, setSelectedDate] = useState(new Date());
